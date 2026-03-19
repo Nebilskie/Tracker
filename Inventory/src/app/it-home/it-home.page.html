@@ -1,0 +1,174 @@
+<ion-content>
+  <div class="home-container">
+
+    <!-- KPI Stats Row -->
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-icon blue">
+          <ion-icon name="cube-outline"></ion-icon>
+        </div>
+        <div class="stat-content">
+          <span class="stat-number">{{ totalItems }}</span>
+          <span class="stat-label">Total Items</span>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon green">
+          <ion-icon name="checkmark-circle-outline"></ion-icon>
+        </div>
+        <div class="stat-content">
+          <span class="stat-number">{{ availableItems }}</span>
+          <span class="stat-label">Available</span>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon red">
+          <ion-icon name="warning-outline"></ion-icon>
+        </div>
+        <div class="stat-content">
+          <span class="stat-number">{{ defectiveItems }}</span>
+          <span class="stat-label">Defective</span>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon orange">
+          <ion-icon name="archive-outline"></ion-icon>
+        </div>
+        <div class="stat-content">
+          <span class="stat-number">{{ usedItems }}</span>
+          <span class="stat-label">Used</span>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon purple">
+          <ion-icon name="document-text-outline"></ion-icon>
+        </div>
+        <div class="stat-content">
+          <span class="stat-number">{{ requestCounts.new + requestCounts.inProgress }}</span>
+          <span class="stat-label">Open Requests</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Grid -->
+    <div class="dashboard-grid">
+
+      <!-- LEFT TOP: Activity Feed -->
+      <div class="card div-1">
+        <div class="card-header">
+          <div class="card-title">
+            <ion-icon name="pulse-outline"></ion-icon>
+            <h3>Recent Activity</h3>
+          </div>
+          <span class="card-badge">{{ activities.length }} updates</span>
+        </div>
+        <div class="activity-list">
+          <div class="activity-item" *ngFor="let activity of activities; let i = index">
+            <div class="activity-avatar" [ngClass]="activity.color">
+              {{ activity.initials }}
+            </div>
+            <div class="activity-info">
+              <p class="activity-text">
+                <strong>{{ activity.user }}</strong> {{ activity.action }}
+              </p>
+              <div class="activity-meta">
+                <span class="activity-tag" [ngClass]="activity.tagClass">{{ activity.tag }}</span>
+                <span class="activity-time">{{ activity.time }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT TOP: Request Status Tabs -->
+      <div class="div-2">
+        <div class="tab tab-new" (click)="navigateToRequests('new')">
+          <div class="tab-left">
+            <div class="tab-icon blue">
+              <ion-icon name="add-circle-outline"></ion-icon>
+            </div>
+            <div class="tab-info">
+              <h2>New Requests</h2>
+              <span class="tab-sub">Awaiting review</span>
+            </div>
+          </div>
+          <div class="tab-count-badge blue">{{ requestCounts.new }}</div>
+        </div>
+        <div class="tab tab-progress" (click)="navigateToRequests('in-progress')">
+          <div class="tab-left">
+            <div class="tab-icon amber">
+              <ion-icon name="time-outline"></ion-icon>
+            </div>
+            <div class="tab-info">
+              <h2>In-Progress</h2>
+              <span class="tab-sub">Being processed</span>
+            </div>
+          </div>
+          <div class="tab-count-badge amber">{{ requestCounts.inProgress }}</div>
+        </div>
+        <div class="tab tab-done" (click)="navigateToRequests('completed')">
+          <div class="tab-left">
+            <div class="tab-icon green">
+              <ion-icon name="checkmark-done-outline"></ion-icon>
+            </div>
+            <div class="tab-info">
+              <h2>Completed</h2>
+              <span class="tab-sub">This week</span>
+            </div>
+          </div>
+          <div class="tab-count-badge green">{{ requestCounts.completed }}</div>
+        </div>
+      </div>
+
+      <!-- LEFT BOTTOM: Bar Chart -->
+      <div class="card div-3">
+        <div class="card-header">
+          <div class="card-title">
+            <ion-icon name="bar-chart-outline"></ion-icon>
+            <h3>Inventory Overview</h3>
+          </div>
+        </div>
+        <div class="chart-container">
+          <canvas baseChart
+            [data]="barChartData"
+            [options]="barChartOptions"
+            [type]="'bar'">
+          </canvas>
+        </div>
+      </div>
+
+      <!-- RIGHT BOTTOM: Items Table -->
+      <div class="card div-4">
+        <div class="card-header">
+          <div class="card-title">
+            <ion-icon name="list-outline"></ion-icon>
+            <h3>Stock Summary</h3>
+          </div>
+          <span class="card-link" (click)="handleClick()">View All →</span>
+        </div>
+        <table class="items-table">
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>Available</th>
+              <th>Used</th>
+              <th>Defect</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let item of inventoryItems">
+              <td class="item-name">
+                <span class="item-dot" [ngClass]="item.statusClass"></span>
+                {{ item.name }}
+              </td>
+              <td><span class="badge-available">{{ item.available }}</span></td>
+              <td><span class="badge-used">{{ item.used }}</span></td>
+              <td><span class="badge-defect">{{ item.defect }}</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </div>
+</ion-content>

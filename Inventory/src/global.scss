@@ -1,0 +1,140 @@
+/*
+ * App Global CSS
+ * ----------------------------------------------------------------------------
+ * Put style rules here that you want to apply globally. These styles are for
+ * the entire app and not just one component. Additionally, this file can be
+ * used as an entry point to import other CSS/Sass files to be included in the
+ * output CSS.
+ * For more information on global stylesheets, visit the documentation:
+ * https://ionicframework.com/docs/layout/global-stylesheets
+ */
+
+/* Core CSS required for Ionic components to work properly */
+@import "@ionic/angular/css/core.css";
+
+/* Basic CSS for apps built with Ionic */
+@import "@ionic/angular/css/normalize.css";
+@import "@ionic/angular/css/structure.css";
+@import "@ionic/angular/css/typography.css";
+@import "@ionic/angular/css/display.css";
+
+/* Optional CSS utils that can be commented out */
+@import "@ionic/angular/css/padding.css";
+@import "@ionic/angular/css/float-elements.css";
+@import "@ionic/angular/css/text-alignment.css";
+@import "@ionic/angular/css/text-transformation.css";
+@import "@ionic/angular/css/flex-utils.css";
+
+/* ===== Global Font ===== */
+* {
+  font-family: 'Inter', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* ===== Dark Mode ===== */
+body.dark-theme {
+  --ion-background-color: #0c1120;
+  --ion-background-color-rgb: 12, 17, 32;
+  --ion-text-color: #e7e9ff;
+  --ion-text-color-rgb: 231, 233, 255;
+  --ion-color-primary: #667eea;
+  --ion-color-primary-rgb: 102, 126, 234;
+  --ion-color-secondary: #a5b4fc;
+  --ion-color-tertiary: #8b9cff;
+  --ion-color-success: #2dd36f;
+  --ion-color-warning: #ffc409;
+  --ion-color-danger: #ff375f;
+
+  --ion-toolbar-background: #0a0e1b;
+  --ion-toolbar-color: #e7e9ff;
+  --ion-item-background: rgba(255, 255, 255, 0.04);
+  --ion-item-border-color: rgba(255, 255, 255, 0.12);
+  --ion-card-background: rgba(255, 255, 255, 0.04);
+  --ion-card-border-color: rgba(255, 255, 255, 0.12);
+
+  background: #0c1120;
+  color: #e7e9ff;
+}
+
+body.dark-theme ion-app {
+  --ion-background-color: var(--ion-background-color) !important;
+}
+
+body.dark-theme ion-content {
+  --background: var(--ion-background-color) !important;
+  background: var(--ion-background-color) !important;
+}
+
+body.dark-theme ion-content ion-app {
+  --background: var(--ion-background-color) !important;
+  background: var(--ion-background-color) !important;
+}
+
+body.dark-theme ion-header {
+  background: linear-gradient(90deg, rgba(25, 31, 58, 0.95) 0%, rgba(42, 44, 78, 0.95) 100%);
+}
+
+body.dark-theme .sidebar {
+  background: rgba(10, 14, 27, 0.92);
+  box-shadow: 2px 0 14px rgba(0, 0, 0, 0.65);
+}
+
+body.dark-theme .nav-btn {
+  background-color: rgba(255, 255, 255, 0.04);
+  color: #e7e9ff;
+}
+
+body.dark-theme .nav-btn:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+body.dark-theme .nav-btn.active {
+  background-color: rgba(103, 116, 230, 0.25);
+  color: #e7e9ff;
+  border-left-color: #667eea;
+}
+
+body.dark-theme .user-name,
+body.dark-theme .user-role {
+  color: #e7e9ff;
+}
+
+body.dark-theme .user-menu {
+  background: rgba(20, 25, 44, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+body.dark-theme .menu-item {
+  color: #dfe3ff;
+}
+
+body.dark-theme .menu-item:hover {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+body.dark-theme .menu-divider {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+body.dark-theme .menu-item ion-icon {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+body.dark-theme .logout-btn {
+  color: #ff6b7b;
+}
+
+body.dark-theme .logout-btn ion-icon {
+  color: #ff6b7b;
+}
+
+.request-modal-container {
+  --background: transparent !important;
+  --backdrop-opacity: 0.4;
+}
+
+.request-modal-container ion-page,
+.request-modal-container .modal-wrapper {
+  background: transparent !important;
+}
+
+

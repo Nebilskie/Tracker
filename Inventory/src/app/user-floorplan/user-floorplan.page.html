@@ -1,0 +1,44 @@
+<ion-content>
+  <div class="list-container">
+
+    <!-- LEGEND -->
+    <div class="legend">
+      <div class="legend-item">
+        <div class="legend-color" style="background:#9e9e9e;"></div>
+        <span>No Unit</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color" style="background:#4caf50;"></div>
+        <span>Single Unit</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color" style="background:#ff5722;"></div>
+        <span>Dual Monitor</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color" style="background:#f44336;"></div>
+        <span>No User</span>
+      </div>
+    </div>
+
+    <!-- CUBICLES -->
+    <div
+      class="cubicle"
+      *ngFor="let c of cubicles"
+      [ngStyle]="{
+        left: c.x + 'px',
+        top: c.y + 'px',
+        width: c.w + 'px',
+        height: c.h + 'px',
+        background: c.color
+      }"
+    >
+      <div class="cubicle-label">{{ c.label }}</div>
+    </div>
+
+    <div class="empty-state" *ngIf="cubicles.length === 0">
+      No floorplan has been published yet.
+    </div>
+
+  </div>
+</ion-content>

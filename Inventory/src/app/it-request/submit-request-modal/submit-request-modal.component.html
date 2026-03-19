@@ -1,0 +1,75 @@
+<div class="modal-content">
+
+  <div class="modal-header">
+    <h2>Submit A Request</h2>
+    <button class="close-btn" (click)="dismiss()">✕</button>
+  </div>
+
+  <div class="modal-body">
+
+    <!-- Cubicle Number Dropdown -->
+    <div class="form-group">
+      <label>Cubicle Number</label>
+
+      <ion-item class="select-item" lines="none">
+        <ion-select
+          [placeholder]="cubicleOptions.length ? '-- Select a Cubicle --' : 'No cubicles available'"
+          interface="popover"
+          [(ngModel)]="cubicleNumber"
+          okText="Select"
+          cancelText="Cancel"
+        >
+          <ion-select-option
+            *ngFor="let label of cubicleOptions"
+            [value]="label"
+          >
+            {{ label }}
+          </ion-select-option>
+        </ion-select>
+      </ion-item>
+    </div>
+
+    <!-- Peripheral Dropdown -->
+    <div class="form-group">
+      <label>Choose a Peripheral</label>
+
+      <ion-item class="select-item" lines="none">
+        <ion-select
+          placeholder="-- Select a Peripheral --"
+          interface="popover"
+          [(ngModel)]="peripheral"
+          okText="Select"
+          cancelText="Cancel"
+        >
+
+          <ion-select-option
+            *ngFor="let p of peripherals"
+            [value]="p.value"
+          >
+            {{ p.text }}
+          </ion-select-option>
+
+        </ion-select>
+      </ion-item>
+
+    </div>
+
+    <!-- Reason -->
+    <div class="form-group">
+      <label>Reason (optional)</label>
+      <textarea
+        class="form-textarea"
+        [(ngModel)]="reason"
+        placeholder="Enter reason..."
+        rows="2"
+      ></textarea>
+    </div>
+
+  </div>
+
+  <div class="modal-footer">
+    <button class="btn btn-cancel" (click)="dismiss()">CANCEL</button>
+    <button class="btn btn-submit" (click)="submit()">SUBMIT</button>
+  </div>
+
+</div>

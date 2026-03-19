@@ -1,0 +1,71 @@
+<ion-content fullscreen>
+  <div class="auth-wrapper">
+
+    <!-- Gradient Background -->
+    <div class="gradient-bg">
+        
+      <!-- Auth Container Card -->
+      <div class="auth-container">
+        
+        <!-- Left Panel: Illustration -->
+        <div class="illustration-panel">
+          <div class="illustration-content">
+            <img src="assets/logo2.png" class="logo">
+            <p class="panel-label">Inventory</p>
+          </div>
+        </div>
+
+        <!-- Divider -->
+        <div class="panel-divider"></div>
+
+        <!-- Right Panel: Login Form -->
+        <div class="form-panel">
+          <div class="form-header">
+            <h2 class="form-title">LOGIN</h2>
+          </div>
+
+          <!-- Error Notification -->
+          <div *ngIf="errorMessage" class="error-message">
+            <ion-icon name="close-circle-outline"></ion-icon>
+            <span>{{ errorMessage }}</span>
+          </div>
+
+          <form class="login-form" (ngSubmit)="login()">
+            <!-- Email Input -->
+            <div class="form-group">
+              <ion-input
+                type="email"
+                placeholder="Username"
+                class="form-input"
+                [(ngModel)]="username"
+                name="username"
+              ></ion-input>
+              <ion-icon name="person-outline" class="input-icon"></ion-icon>
+            </div>
+
+            <!-- Password Input -->
+            <div class="form-group">
+              <ion-input
+                type="password"
+                placeholder="Password"
+                class="form-input"
+                [(ngModel)]="password"
+                name="password"
+              ></ion-input>
+              <ion-icon name="lock-closed-outline" class="input-icon"></ion-icon>
+            </div>
+
+            <!-- Primary Action Button -->
+            <button type="submit" class="login-button">L O G I N</button>
+
+            <!-- Secondary Links -->
+            <div class="secondary-links">
+              <a href="#" class="help-link">Forgot your password?</a>
+            </div>
+          </form>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</ion-content>

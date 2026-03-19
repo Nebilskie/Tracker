@@ -1,0 +1,270 @@
+<ion-content>
+  <div
+    class="list-container"
+    #containerRef
+    [class.painting]="paintMode"
+    [class.adding]="addMode"
+    (click)="onCanvasClick($event)"
+  >
+    <!-- LEGEND -->
+    <div class="legend">
+      <div class="legend-item">
+        <div class="legend-color wall-sample"></div>
+        <span>Wall</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color door-sample"></div>
+        <span>Door</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color table-sample"></div>
+        <span>Table</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color cubicle-sample"></div>
+        <span>Cubicle</span>
+      </div>
+    </div>
+
+    <!-- EDIT BUTTON -->
+    <button
+      #editBtn
+      class="edit-button"
+      type="button"
+      (click)="toggleToolbox(editBtn); $event.stopPropagation()"
+    >
+      + Edit
+    </button>
+
+    <!-- TOOLBOX -->
+    <div
+      class="toolbox"
+      *ngIf="toolboxOpen"
+      [ngStyle]="{ left: toolboxX + 'px', top: toolboxY + 'px' }"
+      (click)="$event.stopPropagation()"
+    >
+      <div class="toolbox-handle" (pointerdown)="onToolboxDragStart($event)">
+        <div class="toolbox-title">Edit Floorplan</div>
+        <button class="toolbox-close" type="button" (click)="closeToolbox()">
+          <ion-icon name="close-outline"></ion-icon>
+        </button>
+      </div>
+
+      <div class="toolbox-body">
+        <div class="tool-section-title">Add item</div>
+
+        <div class="item-type-grid">
+          <button
+            type="button"
+            class="item-type-btn"
+            [class.active]="selectedItemType === 'cubicle'"
+            (click)="setAddItemType('cubicle')"
+          >
+            Cubicle
+          </button>
+
+          <button
+            type="button"
+            class="item-type-btn"
+            [class.active]="selectedItemType === 'wall'"
+            (click)="setAddItemType('wall')"
+          >
+            Wall
+          </button>
+
+          <button
+            type="button"
+            class="item-type-btn"
+            [class.active]="selectedItemType === 'door'"
+            (click)="setAddItemType('door')"
+          >
+            Door
+          </button>
+
+          <button
+            type="button"
+            class="item-type-btn"
+            [class.active]="selectedItemType === 'table'"
+            (click)="setAddItemType('table')"
+          >
+            Table
+          </button>
+        </div>
+
+        <div class="sw-row">
+          <button
+            class="tool-pill"
+            type="button"
+            [class.active]="addMode"
+            (click)="toggleAddMode()"
+          >
+            {{ addMode ? 'Adding…' : 'Add item' }}
+          </button>
+        </div>
+
+        <div class="tool-section-title">Paint</div>
+
+        <div class="swatches">
+          <div class="sw-row">
+            <button
+              class="swatch"
+              type="button"
+              [style.background]="'#9e9e9e'"
+              [class.active]="selectedColor === '#9e9e9e'"
+              (click)="selectColor('#9e9e9e')"
+            ></button>
+
+            <button
+              class="swatch"
+              type="button"
+              [style.background]="'#4caf50'"
+              [class.active]="selectedColor === '#4caf50'"
+              (click)="selectColor('#4caf50')"
+            ></button>
+          </div>
+
+          <div class="sw-row">
+            <button
+              class="swatch"
+              type="button"
+              [style.background]="'#000000'"
+              [class.active]="selectedColor === '#000000'"
+              (click)="selectColor('#000000')"
+            ></button>
+
+            <button
+              class="swatch"
+              type="button"
+              [style.background]="'#f44336'"
+              [class.active]="selectedColor === '#f44336'"
+              (click)="selectColor('#f44336')"
+            ></button>
+          </div>
+
+          <div class="sw-row">
+            <button
+              class="swatch"
+              type="button"
+              [style.background]="'#ff5722'"
+              [class.active]="selectedColor === '#ff5722'"
+              (click)="selectColor('#ff5722')"
+            ></button>
+          </div>
+        </div>
+
+        <button
+          class="brush-btn"
+          type="button"
+          [class.active]="paintMode"
+          (click)="togglePaintMode()"
+        >
+          <ion-icon name="color-fill"></ion-icon>
+        </button>
+
+        <div class="delete-hint" *ngIf="isEditMode && selectedItemId">
+          Press <b>Delete</b> or <b>Backspace</b> to remove selected item
+        </div>
+
+        <div class="tool-footer">
+          <button class="save-btn" type="button" (click)="saveEditSettings()">
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ITEMS -->
+    <div
+      class="floor-item"
+      *ngFor="let item of floorItems"
+      [class.editing]="isEditMode"
+      [class.selected]="selectedItemId === item.id"
+      [class.item-wall]="item.type === 'wall'"
+      [class.item-door]="item.type === 'door'"
+      [class.item-table]="item.type === 'table'"
+      [class.item-cubicle]="item.type === 'cubicle'"
+      [ngStyle]="{
+        left: item.x + 'px',
+        top: item.y + 'px',
+        width: item.w + 'px',
+        height: item.h + 'px',
+        background: item.color
+      }"
+      (click)="selectItem(item.id, $event)"
+      (pointerdown)="onItemPointerDown($event, item)"
+    >
+      <div class="floor-item-label" *ngIf="item.type === 'cubicle'">
+        {{ item.label }}
+      </div>
+
+      <!-- RESIZE HANDLES -->
+      <div
+        *ngIf="isEditMode && selectedItemId === item.id"
+        class="resize-handle top"
+        (pointerdown)="onResizeStart($event, item, 'top')"
+      ></div>
+
+      <div
+        *ngIf="isEditMode && selectedItemId === item.id"
+        class="resize-handle bottom"
+        (pointerdown)="onResizeStart($event, item, 'bottom')"
+      ></div>
+
+      <div
+        *ngIf="isEditMode && selectedItemId === item.id"
+        class="resize-handle left"
+        (pointerdown)="onResizeStart($event, item, 'left')"
+      ></div>
+
+      <div
+        *ngIf="isEditMode && selectedItemId === item.id"
+        class="resize-handle right"
+        (pointerdown)="onResizeStart($event, item, 'right')"
+      ></div>
+
+      <div
+        *ngIf="isEditMode && selectedItemId === item.id"
+        class="resize-handle top-left"
+        (pointerdown)="onResizeStart($event, item, 'top-left')"
+      ></div>
+
+      <div
+        *ngIf="isEditMode && selectedItemId === item.id"
+        class="resize-handle top-right"
+        (pointerdown)="onResizeStart($event, item, 'top-right')"
+      ></div>
+
+      <div
+        *ngIf="isEditMode && selectedItemId === item.id"
+        class="resize-handle bottom-left"
+        (pointerdown)="onResizeStart($event, item, 'bottom-left')"
+      ></div>
+
+      <div
+        *ngIf="isEditMode && selectedItemId === item.id"
+        class="resize-handle bottom-right"
+        (pointerdown)="onResizeStart($event, item, 'bottom-right')"
+      ></div>
+    </div>
+
+    <!-- BOTTOM ROOM TABS -->
+    <div class="room-tabs-bar" (click)="$event.stopPropagation()">
+      <div class="room-tabs-scroll">
+        <button
+          type="button"
+          class="room-tab"
+          *ngFor="let room of rooms"
+          [class.active]="room === roomId"
+          (click)="switchRoom(room)"
+        >
+          {{ room }}
+        </button>
+      </div>
+
+      <button type="button" class="add-room-btn" (click)="createRoom()">
+        <ion-icon name="add-outline"></ion-icon>
+        New Room
+      </button>
+    </div>
+  </div>
+</ion-content>

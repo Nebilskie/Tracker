@@ -1,0 +1,341 @@
+// ===== AUTH PAGE STYLES =====
+
+.auth-wrapper {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: linear-gradient(
+  135deg,
+  #e6e8f5 0%,
+  #9aa0ff 40%,
+  #1a1ae2 100%
+);
+}
+
+// Gradient Background
+.gradient-bg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: 40px 20px;
+  position: relative;
+}
+
+// Auth Container Card
+.auth-container {
+  display: flex;
+  background: white;
+  border-radius: 24px;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.2), 0 12px 24px rgba(0, 0, 0, 0.1);
+  width: 100%;
+  max-width: 900px;
+  min-height: 500px;
+  overflow: hidden;
+  animation: slideUp 0.6s ease-out;
+}
+
+// Illustration Panel (Left)
+.illustration-panel {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 40px;
+  position: relative;
+  overflow: hidden;
+}
+
+.illustration-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  position: relative;
+  z-index: 1;
+}
+
+.logo {
+  height: 130px;
+}
+
+.panel-label {
+  font-size: 30px;
+  color: #1f2937;
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: 0.5px;
+}
+
+// Panel Divider
+.panel-divider {
+  width: 2px;
+  background: linear-gradient(to bottom, transparent, #e5e7eb, transparent);
+  margin: 0;
+}
+
+// Form Panel (Right)
+.form-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 60px 50px;
+  justify-content: space-between;
+    background: linear-gradient(135deg, #f0f4ff 0%, #f8f3ff 100%);
+}
+
+.form-header {
+  margin-bottom: 30px;
+}
+
+.form-title {
+  font-size: 20px;
+  color: #1f2937;
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: 0.3px;
+}
+
+// Login Form
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-bottom: 25px;
+}
+
+// Error Message Alert
+.error-message {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background-color: #fee2e2;
+  border: 2px solid #fca5a5;
+  border-radius: 10px;
+  margin-bottom: 16px;
+  animation: slideDown 0.4s ease-out;
+}
+
+.error-message ion-icon {
+  font-size: 20px;
+  color: #dc2626;
+  flex-shrink: 0;
+}
+
+.error-message span {
+  color: #991b1b;
+  font-size: 13px;
+  font-weight: 500;
+  word-break: break-word;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+// Form Group
+.form-group {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.form-group.error .form-input {
+  border-color: #dc2626;
+  background-color: #fef2f2;
+}
+
+.form-group.error .form-input:focus {
+  border-color: #dc2626;
+  box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.08);
+}
+
+.form-group.error .input-icon {
+  color: #dc2626;
+}
+
+.field-error {
+  font-size: 12px;
+  color: #dc2626;
+  margin-top: 6px;
+  margin-left: 14px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  animation: slideDown 0.3s ease-out;
+  order: 2;
+}
+
+.field-error::before {
+  content: '⚠';
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.form-input {
+  width: 100%;
+  padding: 14px 16px 14px 44px !important;
+  border: 2px solid #e5e7eb;
+  border-radius: 12px;
+  font-size: 14px;
+  background: #f9fafb;
+  color: #1f2937;
+  transition: all 0.3s ease;
+  font-family: inherit;
+  order: 1;
+
+  &::placeholder {
+    color: #9ca3af;
+  }
+
+  &:focus {
+    outline: none;
+    border-color: #7C3AED;
+    background: white;
+    box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.08);
+  }
+}
+
+.input-icon {
+  position: absolute;
+  left: 14px;
+  font-size: 20px;
+  color: #9ca3af;
+  pointer-events: none;
+  transition: color 0.2s;
+}
+
+.form-group:focus-within .input-icon {
+  color: #7C3AED;
+}
+
+// Login Button
+.login-button {
+  width: 100%;
+  padding: 16px;
+  margin-top: 8px;
+  background: #0065FF;
+  color: white;
+  border: none;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 10px 25px rgba(124, 58, 237, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+
+  &:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 30px rgba(124, 58, 237, 0.4);
+  }
+
+  &:active:not(:disabled) {
+    transform: translateY(0);
+  }
+
+  &:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+  }
+
+  ion-spinner {
+    width: 20px;
+    height: 20px;
+  }
+}
+
+// Secondary Links
+.Forgot-Password {
+  margin-top: 20px;
+  text-align: center;
+}
+
+.help-link {
+  font-size: 13px;
+  color: #8B5CF6;
+  text-decoration: none;
+  font-weight: 600;
+  transition: color 0.2s;
+
+  &:hover {
+    color: #7C3AED;
+    text-decoration: underline;
+  }
+}
+
+.separator {
+  color: #d1d5db;
+}
+
+// Responsive Design
+@media (max-width: 968px) {
+  .auth-container {
+    flex-direction: column;
+    min-height: auto;
+    max-width: 600px;
+  }
+
+  .illustration-panel {
+    min-height: 280px;
+    padding: 30px 20px;
+  }
+
+  .panel-divider {
+    width: 100%;
+    height: 1px;
+  }
+
+  .form-panel {
+    padding: 40px 30px;
+  }
+}
+
+@media (max-width: 480px) {
+  .brand-logo {
+    width: 50px;
+    height: 50px;
+  }
+
+  .brand-text {
+    font-size: 10px;
+  }
+
+  .auth-container {
+    border-radius: 16px;
+  }
+
+  .form-panel {
+    padding: 30px 20px;
+  }
+
+  .form-title {
+    font-size: 18px;
+  }
+
+  .login-button {
+    font-size: 14px;
+    padding: 14px;
+  }
+
+  .form-input {
+    font-size: 13px;
+  }
+}

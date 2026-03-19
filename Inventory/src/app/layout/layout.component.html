@@ -1,0 +1,92 @@
+<ion-app>
+  <ion-header>
+    <div class="sidebar-logo">
+      <img src="assets/logo.png" alt="HireBiz Logo" class="logo-img">
+    </div>
+    <div class="user-info" (click)="toggleUserMenu()">
+      <div class="user-details">
+        <span class="user-name">{{ userName }}</span>
+        <p class="user-role">{{ userRole }}</p>
+      </div>
+      <ion-icon name="person-circle-outline"></ion-icon>
+      
+      <!-- User Dropdown Menu -->
+      <div class="user-menu" *ngIf="isUserMenuOpen">
+        <div class="user-menu-header">
+          <ion-icon name="person-circle-outline"></ion-icon>
+          <div>
+            <div class="menu-username">{{ userName }}</div>
+            <div class="menu-role">{{ userRole }}</div>
+          </div>
+          <ion-icon name="close" (click)="toggleUserMenu(); $event.stopPropagation()"></ion-icon>
+        </div>
+        <div class="menu-divider"></div>
+        <button class="menu-item" (click)="openNotificationSettings()">
+          <ion-icon name="notifications-outline"></ion-icon>
+          <span>Notification Settings</span>
+        </button>
+        <button class="menu-item" (click)="toggleDarkMode()">
+          <ion-icon name="moon-outline"></ion-icon>
+          <span>Dark Mode</span>
+          <div class="toggle-switch" [class.active]="isDarkMode"></div>
+        </button>
+        <button class="menu-item" (click)="toggleLanguageDropdown()">
+          <ion-icon name="globe-outline"></ion-icon>
+          <span>Language: {{ getLanguageLabel() }}</span>
+          <ion-icon [name]="showLanguageDropdown ? 'chevron-up-outline' : 'chevron-down-outline'" style="font-size: 14px; color: #999;"></ion-icon>
+        </button>
+        <div class="language-dropdown" *ngIf="showLanguageDropdown">
+          <button
+            *ngFor="let lang of languages"
+            class="lang-option"
+            [class.active-lang]="lang.code === currentLanguage"
+            (click)="selectLanguage(lang)"
+          >
+            {{ lang.label }}
+            <ion-icon name="checkmark" class="lang-check" *ngIf="lang.code === currentLanguage"></ion-icon>
+          </button>
+        </div>
+        <div class="menu-divider"></div>
+        <button class="menu-item switch-btn" (click)="switchAccount()">
+          <ion-icon name="swap-horizontal-outline"></ion-icon>
+          <span>Switch Account</span>
+        </button>
+        <button class="menu-item logout-btn" (click)="logout()">
+          <ion-icon name="log-out-outline"></ion-icon>
+          <span>Sign Out</span>
+        </button>
+      </div>
+    </div>
+  </ion-header>
+  <div class="layout-container">
+    <!-- Left Sidebar -->
+    <aside class="sidebar">
+      
+      <nav class="sidebar-nav">
+        <button class="nav-btn" (click)="navigate(homeRoute)" [routerLink]="homeRoute" routerLinkActive="active">
+          <ion-icon name="home-outline"></ion-icon>
+          <span>Home</span>
+        </button>
+
+        <button *ngIf="!isUser" class="nav-btn" (click)="navigate('/app/it-inventory')" routerLink="/app/it-inventory" routerLinkActive="active">
+          <ion-icon name="layers-outline"></ion-icon>
+          <span>Inventory</span>
+        </button>
+
+        <button class="nav-btn" (click)="navigate(floorplanRoute)" [routerLink]="floorplanRoute" routerLinkActive="active">
+          <ion-icon name="grid-outline"></ion-icon>
+          <span>Floor Plan</span>
+        </button>
+        <button class="nav-btn" (click)="navigate(requestRoute)" [routerLink]="requestRoute" routerLinkActive="active">
+          <ion-icon name="add-circle-outline"></ion-icon>
+          <span>Request</span>
+        </button>
+      </nav>
+    </aside>
+
+    <!-- Main Content -->
+    <div id="main-content">
+      <ion-router-outlet></ion-router-outlet>  <!-- Child pages load here -->
+    </div>
+  </div>
+</ion-app>

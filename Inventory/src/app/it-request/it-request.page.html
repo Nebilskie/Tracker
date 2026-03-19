@@ -1,0 +1,169 @@
+<ion-content>
+
+  <div class="request-container">
+
+    <div class="requests-board">
+      <div class="board-column" *ngFor="let col of columns">
+
+        <!-- COLUMN HEADER -->
+        <div class="column-header">
+          <div class="title">{{ col.label }}</div>
+
+          <!-- ✅ SHOW ADD BUTTON ONLY IN NEW -->
+          <ion-button
+            *ngIf="col.status === 'new'"
+            fill="clear"
+            class="add-btn"
+            (click)="addRequest(col.status)">
+            <ion-icon name="add"></ion-icon>
+          </ion-button>
+        </div>
+
+        <!-- CARDS -->
+        <div class="cards">
+          <div
+            class="request-card"
+            *ngFor="let r of itemsByStatus(col.status)"
+            (click)="onCardClick(col.status, r)">
+
+            <div class="card-title">
+              {{ r.title }}
+            </div>
+
+            <div class="card-meta">
+              <div class="avatar">
+                {{ r.ownerInitials }}
+              </div>
+
+              <div class="meta-text">
+                <div class="time">{{ r.time }}</div>
+                <div class="date">{{ r.date }}</div>
+              </div>
+            </div>
+          </div>
+
+          <div *ngIf="itemsByStatus(col.status).length === 0"
+               class="empty-state">
+            No requests
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================
+       MODAL
+  ========================== -->
+
+  <div *ngIf="showDetailModal && selectedRequest"
+       class="detail-modal-overlay"
+       (click)="closeDetailModal()">
+
+    <div class="detail-modal v2"
+         (click)="$event.stopPropagation()">
+
+      <!-- ID -->
+      <div class="top-id">
+        ID: {{ selectedRequest.id }}
+      </div>
+
+      <!-- HEADER -->
+      <div class="header-row">
+
+        <!-- LEFT: USER -->
+        <div class="user-block">
+          <div class="avatar-circle">
+            {{ selectedRequest.ownerInitials }}
+          </div>
+          <div class="user-name">
+            {{ selectedRequest.username }}
+          </div>
+        </div>
+
+        <!-- RIGHT: TITLE -->
+        <div class="request-title">
+          {{ selectedRequest.title }}
+        </div>
+      </div>
+
+      <!-- REASON -->
+      <div class="reason-label">
+        Reason:
+      </div>
+
+      <div class="reason-box">
+        {{ selectedRequest.reason || 'No reason provided' }}
+      </div>
+
+      <!-- TIME + DATE -->
+      <div class="time-date">
+        <div class="td-col">
+          <div class="td-label">Time</div>
+          <div class="td-value">
+            {{ selectedRequest.time }}
+          </div>
+        </div>
+
+        <div class="td-col">
+          <div class="td-label">Date</div>
+          <div class="td-value">
+            {{ selectedRequest.date }}
+          </div>
+        </div>
+      </div>
+
+      <div class="status-timestamps" *ngIf="selectedRequest.inprogressAt || selectedRequest.completedAt || selectedRequest.rejectedAt">
+        <div class="td-col" *ngIf="selectedRequest.inprogressAt">
+          <div class="td-label">In Progress at</div>
+          <div class="td-value">{{ selectedRequest.inprogressAt }}</div>
+        </div>
+        <div class="td-col" *ngIf="selectedRequest.completedAt">
+          <div class="td-label">Completed at</div>
+          <div class="td-value">{{ selectedRequest.completedAt }}</div>
+        </div>
+        <div class="td-col" *ngIf="selectedRequest.rejectedAt">
+          <div class="td-label">Rejected at</div>
+          <div class="td-value">{{ selectedRequest.rejectedAt }}</div>
+        </div>
+        <div class="td-col" *ngIf="selectedRequest.rejectedFrom">
+          <div class="td-label">Rejected from</div>
+          <div class="td-value">{{ selectedRequest.rejectedFrom === 'inprogress' ? 'In Progress' : 'New' }}</div>
+        </div>
+      </div>
+
+      <!-- ACTION BUTTONS -->
+      <div class="modal-actions">
+
+        <!-- NEW -->
+        <button *ngIf="selectedRequest.status === 'new'"
+                class="btn-outline danger"
+                (click)="rejectRequest(selectedRequest)">
+          REJECT
+        </button>
+
+        <button *ngIf="selectedRequest.status === 'new'"
+                class="btn-outline primary"
+                (click)="acceptRequest(selectedRequest)">
+          ACCEPT
+        </button>
+
+        <!-- IN PROGRESS -->
+        <button *ngIf="selectedRequest.status === 'inprogress'"
+                class="btn-outline danger"
+                (click)="rejectRequest(selectedRequest)">
+          REJECT
+        </button>
+
+        <button *ngIf="selectedRequest.status === 'inprogress'"
+                class="btn-outline success"
+                (click)="doneRequest(selectedRequest)">
+          DONE
+        </button>
+
+      </div>
+
+    </div>
+  </div>
+
+</ion-content>

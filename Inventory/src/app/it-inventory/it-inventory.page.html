@@ -1,0 +1,165 @@
+<ion-content>
+  <div class="list-container">
+
+    <!-- Category Buttons (shown when no assetType selected) -->
+    <div class="category-section" *ngIf="false">
+      <div class="category-title">Select Asset Type</div>
+      <div class="category-buttons">
+        <button class="category-btn" (click)="selectAssetType('computers')">
+          <span>Computers</span>
+        </button>
+        <button class="category-btn" (click)="selectAssetType('monitors')">
+          <span>Monitors</span>
+        </button>
+        <button class="category-btn" (click)="selectAssetType('headsets')">
+          <span>Headsets</span>
+        </button>
+        <button class="category-btn" (click)="selectAssetType('mouse')">
+          <span>Mouse</span>
+        </button>
+        <button class="category-btn" (click)="selectAssetType('keyboards')">
+          <span>Keyboards</span>
+        </button>
+        <button class="category-btn" (click)="selectAssetType('cameras')">
+          <span>Cameras</span>
+        </button>
+        <button class="category-btn" (click)="selectAssetType('cpus')">
+          <span>CPUs</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Toolbar (shown when assetType selected) -->
+    <div class="toolbar">
+      <div class="toolbar-left">
+
+        <!-- Category Filter -->
+        <select class="category-filter" [(ngModel)]="assetType" (change)="loadAssetDataManual()">
+          <option value="">All Inventory</option>
+          <option value="computers">Computers</option>
+          <option value="monitors">Monitors</option>
+          <option value="headsets">Headsets</option>
+          <option value="mouse">Mouse</option>
+          <option value="keyboards">Keyboards</option>
+          <option value="cameras">Cameras</option>
+          <option value="cpus">CPUs</option>
+        </select>
+
+        <!-- Import Button -->
+        <button class="tool-btn" (click)="fileInput.click()">
+          <ion-icon name="cloud-upload-outline"></ion-icon> Import
+        </button>
+        <input #fileInput type="file" accept=".csv" hidden (change)="onImportFile($event)" />
+
+        <!-- Export Button + Dropdown -->
+        <div class="export-wrapper">
+          <button class="tool-btn" (click)="toggleExportDropdown($event)">
+            <ion-icon name="download-outline"></ion-icon> Export
+          </button>
+          <div class="export-dropdown" *ngIf="showExportDropdown">
+            <div class="export-section">
+              <div class="export-section-title">CURRENT PAGE</div>
+              <button class="export-option" (click)="exportData('pdf-landscape', 'current')">
+                <ion-icon name="document-outline"></ion-icon> Landscape PDF
+              </button>
+              <button class="export-option" (click)="exportData('pdf-portrait', 'current')">
+                <ion-icon name="document-outline"></ion-icon> Portrait PDF
+              </button>
+              <button class="export-option" (click)="exportData('csv', 'current')">
+                <ion-icon name="document-text-outline"></ion-icon> CSV
+              </button>
+              <button class="export-option" (click)="exportData('ods', 'current')">
+                <ion-icon name="grid-outline"></ion-icon> Spreadsheet (ODS)
+              </button>
+              <button class="export-option" (click)="exportData('xlsx', 'current')">
+                <ion-icon name="grid-outline"></ion-icon> Spreadsheet (XLSX)
+              </button>
+            </div>
+            <div class="export-section">
+              <div class="export-section-title">ALL PAGES</div>
+              <button class="export-option" (click)="exportData('pdf-landscape', 'all')">
+                <ion-icon name="document-outline"></ion-icon> Landscape PDF
+              </button>
+              <button class="export-option" (click)="exportData('pdf-portrait', 'all')">
+                <ion-icon name="document-outline"></ion-icon> Portrait PDF
+              </button>
+              <button class="export-option" (click)="exportData('csv', 'all')">
+                <ion-icon name="document-text-outline"></ion-icon> CSV
+              </button>
+              <button class="export-option" (click)="exportData('ods', 'all')">
+                <ion-icon name="grid-outline"></ion-icon> Spreadsheet (ODS)
+              </button>
+              <button class="export-option" (click)="exportData('xlsx', 'all')">
+                <ion-icon name="grid-outline"></ion-icon> Spreadsheet (XLSX)
+              </button>
+            </div>
+            <div class="export-section export-section-last">
+              <button class="export-option" (click)="copyNamesToClipboard()">
+                <ion-icon name="copy-outline"></ion-icon> Copy names to clipboard
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="toolbar-right">
+        <input
+          type="text"
+          class="search-input"
+          placeholder="Search..."
+          [(ngModel)]="searchTerm"
+          (input)="onSearch()"
+        />
+      </div>
+    </div>
+
+    <!-- Data Table -->
+    <div class="table-wrapper">
+      <table class="asset-table">
+        <thead>
+          <tr>
+            <th *ngFor="let col of columns">{{ col.label }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let row of pagedRows">
+            <td *ngFor="let col of columns; let first = first">
+              <span [class.name-link]="first">{{ row[col.key] ?? '' }}</span>
+            </td>
+          </tr>
+          <tr *ngIf="pagedRows.length === 0">
+            <td [attr.colspan]="columns.length" class="empty-row">No data available</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Pagination -->
+    <div class="pagination-bar">
+      <div class="page-size">
+        <select [(ngModel)]="pageSize" (change)="currentPage = 1; paginate()">
+          <option [value]="10">10</option>
+          <option [value]="20">20</option>
+          <option [value]="50">50</option>
+        </select>
+        <span>rows / page</span>
+      </div>
+      <div class="page-info">
+        Showing {{ showingFrom }} to {{ showingTo }} of {{ totalRows }} rows
+      </div>
+      <div class="page-controls">
+        <button class="page-btn" (click)="goToPage(1)" [disabled]="currentPage === 1">«</button>
+        <button class="page-btn" (click)="goToPage(currentPage - 1)" [disabled]="currentPage === 1">‹</button>
+        <button
+          *ngFor="let p of pageNumbers"
+          class="page-btn"
+          [class.active]="p === currentPage"
+          (click)="goToPage(p)"
+        >{{ p }}</button>
+        <button class="page-btn" (click)="goToPage(currentPage + 1)" [disabled]="currentPage === totalPages">›</button>
+        <button class="page-btn" (click)="goToPage(totalPages)" [disabled]="currentPage === totalPages">»</button>
+      </div>
+    </div>
+
+  </div>
+</ion-content>
+

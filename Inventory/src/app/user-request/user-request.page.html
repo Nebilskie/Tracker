@@ -1,0 +1,52 @@
+<ion-content>
+  <div class="request-container">
+
+    <div class="requests-board" *ngIf="currentUser">
+      <div class="board-column" *ngFor="let col of columns">
+
+        <!-- COLUMN HEADER -->
+        <div class="column-header">
+          <div class="title">{{ col.label }}</div>
+
+          <!-- ✅ SHOW ADD BUTTON ONLY IN NEW -->
+          <ion-button
+            *ngIf="col.status === 'new'"
+            fill="clear"
+            class="add-btn"
+            (click)="addRequest()">
+            <ion-icon name="add"></ion-icon>
+          </ion-button>
+        </div>
+
+        <!-- CARDS -->
+        <div class="cards">
+          <div
+            class="request-card"
+            *ngFor="let r of itemsByStatus(col.status)">
+
+            <div class="card-title">
+              {{ r.title }}
+            </div>
+
+            <div class="card-meta">
+              <div class="avatar">
+                {{ r.ownerInitials }}
+              </div>
+
+              <div class="meta-text">
+                <div class="time">{{ r.time }}</div>
+                <div class="date">{{ r.date }}</div>
+              </div>
+            </div>
+          </div>
+
+          <div *ngIf="itemsByStatus(col.status).length === 0"
+               class="empty-state">
+            No requests
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</ion-content>

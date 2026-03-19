@@ -1,0 +1,42 @@
+
+
+<ion-content>
+    <ion-header>
+      <ion-toolbar>
+        <ion-title>Add Inventory Item</ion-title>
+        <ion-buttons slot="end">
+          <ion-button (click)="closeModal()">Close</ion-button>
+        </ion-buttons>
+      </ion-toolbar>
+    </ion-header>
+    
+  <div class="upload-container">
+
+    <h2>Import Inventory CSV</h2>
+
+    <!-- Upload Button -->
+    <ion-button expand="block" (click)="fileInput.click()">
+      Upload CSV File
+    </ion-button>
+
+    <!-- Hidden File Input -->
+    <input
+      #fileInput
+      type="file"
+      accept=".csv"
+      hidden
+      (change)="onFileSelected($event)"
+    />
+
+    <!-- Drag & Drop -->
+    <div
+      class="drop-zone"
+      (dragover)="onDragOver($event)"
+      (drop)="onDrop($event)"
+    >
+      <p>Drag & Drop CSV File Here</p>
+    </div>
+
+  </div>
+
+</ion-content>
