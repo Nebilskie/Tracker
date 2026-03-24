@@ -1,5 +1,6 @@
 import { Component, HostListener, OnInit } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
+import { forkJoin } from 'rxjs';
 import { InventoryService, InventoryItem, InventorySummaryItem } from '../services/inventory.service';
 
 export interface ColumnDef {
@@ -69,15 +70,107 @@ export class ItInventoryPage implements OnInit {
 
   onSearch() {
     const term = this.searchTerm.toLowerCase().trim();
+
     if (!term) {
-      this.filteredRows = [...this.rows];
-    } else {
-      this.filteredRows = this.rows.filter(row =>
-        this.columns.some(col => String(row[col.key] ?? '').toLowerCase().includes(term))
-      );
+      if (!this.assetType) {
+        this.showSummaryView();
+      } else {
+        this.filteredRows = [...this.rows];
+      }
+      this.currentPage = 1;
+      this.paginate();
+      return;
     }
+
+    if (!this.assetType) {
+      this.performAllInventoryItemSearch(term);
+      return;
+    }
+
+    this.filteredRows = this.rows.filter(row =>
+      this.getSearchableFields().some(field =>
+        String(row[field] ?? '').toLowerCase().includes(term)
+      )
+    );
+
     this.currentPage = 1;
     this.paginate();
+  }
+
+  private getSearchableFields(): string[] {
+    if (!this.assetType) return ['name'];
+
+    if (this.assetType === 'computers') {
+      return ['name', 'status', 'manufacturer', 'serial_number', 'type', 'model', 'os', 'location', 'processor'];
+    } else {
+      return ['name', 'status', 'manufacturer', 'location', 'model'];
+    }
+  }
+
+  private showSummaryView() {
+    this.assetTitle = 'All Inventory';
+    this.columns = [
+      { key: 'name', label: 'ITEM' },
+      { key: 'total', label: 'TOTAL' },
+      { key: 'defects', label: 'DEFECTS' },
+      { key: 'used', label: 'USED' },
+      { key: 'available', label: 'AVAILABLE' }
+    ];
+
+    this.inventoryService.getSummary().subscribe(response => {
+      if (response?.success) {
+        this.rows = response.summary;
+        this.filteredRows = [...this.rows];
+        this.currentPage = 1;
+        this.paginate();
+      }
+    });
+  }
+
+  private performAllInventoryItemSearch(term: string) {
+    const inventoryTypes = ['computers', 'monitors', 'headsets', 'mouse', 'keyboards', 'cameras'];
+
+    const requests = inventoryTypes.map(type => this.inventoryService.getItems(type));
+
+    forkJoin(requests).subscribe(results => {
+      const allItems: any[] = [];
+
+      results.forEach((res, idx) => {
+        const type = inventoryTypes[idx];
+        if (res?.success && Array.isArray(res.items)) {
+          res.items.forEach(item => {
+            allItems.push({ ...item, inventoryType: type });
+          });
+        }
+      });
+
+      this.columns = [
+        { key: 'inventoryType', label: 'TYPE' },
+        { key: 'name', label: 'NAME' },
+        { key: 'status', label: 'STATUS' },
+        { key: 'manufacturer', label: 'MANUFACTURER' },
+        { key: 'serial_number', label: 'SERIAL NUMBER' },
+        { key: 'type', label: 'KIND' },
+        { key: 'model', label: 'MODEL' },
+        { key: 'os', label: 'OPERATING SYSTEM' },
+        { key: 'location', label: 'LOCATION' },
+        { key: 'processor', label: 'PROCESSOR' },
+        { key: 'last_update', label: 'LAST UPDATE' }
+      ];
+
+      this.rows = allItems;
+
+      const searchableFields = ['inventoryType', 'name', 'status', 'manufacturer', 'serial_number', 'type', 'model', 'os', 'location', 'processor', 'last_update'];
+
+      this.filteredRows = this.rows.filter(row =>
+        searchableFields.some(field =>
+          String(row[field] ?? '').toLowerCase().includes(term)
+        )
+      );
+
+      this.currentPage = 1;
+      this.paginate();
+    });
   }
 
   paginate() {
@@ -111,15 +204,212 @@ export class ItInventoryPage implements OnInit {
   onImportFile(event: any) {
     const file = event.target.files?.[0];
     if (!file) return;
+
     const reader = new FileReader();
-    reader.onload = () => {
-      const text = reader.result as string;
-      const csvRows = text.split('\n').map(r => r.split(','));
-      console.log('Imported CSV:', csvRows);
-      // TODO: parse CSV rows into asset data and update table
+    reader.onload = (e) => {
+      const text = e.target?.result as string;
+      if (!text) return;
+
+      try {
+        const csvData = this.parseCSV(text);
+        if (csvData.length === 0) {
+          alert('No data found in CSV file');
+          return;
+        }
+
+        // Check if this is bulk import (has type column) or single type import
+        const hasTypeColumn = csvData.length > 0 && csvData[0].hasOwnProperty('type');
+
+        if (hasTypeColumn) {
+          // Bulk import - validate that all rows have type
+          const validation = this.validateBulkCSVData(csvData);
+          if (!validation.valid) {
+            alert(`CSV validation failed:\n${validation.errors.join('\n')}`);
+            return;
+          }
+
+          // Confirm import
+          if (!confirm(`Bulk import ${csvData.length} items across multiple inventory types? Existing items with the same name will be skipped.`)) {
+            return;
+          }
+
+          // Send to bulk import endpoint
+          this.inventoryService.importBulkItems(csvData).subscribe({
+            next: (response) => {
+              if (response.success) {
+                alert(`Bulk import completed!\nImported: ${response.imported}\nSkipped: ${response.skipped}`);
+                if (response.errors && response.errors.length > 0) {
+                  console.warn('Import errors:', response.errors);
+                }
+                // Reload data if a type is currently selected
+                if (this.assetType) {
+                  this.loadAssetData();
+                }
+              } else {
+                alert('Import failed: ' + (response.errors?.join(', ') || 'Unknown error'));
+              }
+            },
+            error: (err) => {
+              console.error('Import error:', err);
+              alert('Import failed. Please check the console for details.');
+            }
+          });
+        } else {
+          // Single type import - requires type selection
+          if (!this.assetType) {
+            alert('Please select an inventory type first for single-type import (Computers, Monitors, etc.)');
+            event.target.value = '';
+            return;
+          }
+
+          // Validate CSV data for single type
+          const validation = this.validateCSVData(csvData, this.assetType);
+          if (!validation.valid) {
+            alert(`CSV validation failed:\n${validation.errors.join('\n')}`);
+            return;
+          }
+
+          // Confirm import
+          if (!confirm(`Import ${csvData.length} items into ${this.assetType}? Existing items with the same name will be skipped.`)) {
+            return;
+          }
+
+          // Send to backend
+          this.inventoryService.importItems(this.assetType, csvData).subscribe({
+            next: (response) => {
+              if (response.success) {
+                alert(`Import completed!\nImported: ${response.imported}\nSkipped: ${response.skipped}`);
+                if (response.errors && response.errors.length > 0) {
+                  console.warn('Import errors:', response.errors);
+                }
+                // Reload data
+                this.loadAssetData();
+              } else {
+                alert('Import failed: ' + (response.errors?.join(', ') || 'Unknown error'));
+              }
+            },
+            error: (err) => {
+              console.error('Import error:', err);
+              alert('Import failed. Please check the console for details.');
+            }
+          });
+        }
+
+      } catch (error) {
+        console.error('CSV parsing error:', error);
+        alert('Failed to parse CSV file. Please check the format.');
+      }
     };
+
     reader.readAsText(file);
     event.target.value = ''; // reset so same file can be re-selected
+  }
+
+  private parseCSV(text: string): any[] {
+    const lines = text.split('\n').filter(line => line.trim());
+    if (lines.length < 2) return [];
+
+    const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+    const rows = lines.slice(1);
+
+    return rows.map(row => {
+      const values = this.parseCSVRow(row);
+      const obj: any = {};
+
+      headers.forEach((header, index) => {
+        const value = values[index] || '';
+        obj[header.toLowerCase().replace(/\s+/g, '_')] = value.trim();
+      });
+
+      return obj;
+    });
+  }
+
+  private parseCSVRow(row: string): string[] {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < row.length; i++) {
+      const char = row[i];
+
+      if (char === '"') {
+        if (inQuotes && row[i + 1] === '"') {
+          // Escaped quote
+          current += '"';
+          i++; // Skip next quote
+        } else {
+          // Toggle quote mode
+          inQuotes = !inQuotes;
+        }
+      } else if (char === ',' && !inQuotes) {
+        // Field separator
+        result.push(current);
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+
+    result.push(current); // Add last field
+    return result;
+  }
+
+  private validateCSVData(csvData: any[], assetType: string): { valid: boolean; errors: string[] } {
+    const errors: string[] = [];
+
+    if (csvData.length === 0) {
+      errors.push('No data rows found');
+      return { valid: false, errors };
+    }
+
+    csvData.forEach((row, index) => {
+      const rowNum = index + 1;
+
+      // Check required fields
+      if (!row.name || typeof row.name !== 'string' || !row.name.trim()) {
+        errors.push(`Row ${rowNum}: Missing or invalid 'name' field`);
+      }
+
+      // Type-specific validation
+      if (assetType === 'computers') {
+        // Computers have more fields, but they're all optional except name
+      } else {
+        // Other types have basic validation
+      }
+    });
+
+    return { valid: errors.length === 0, errors };
+  }
+
+  private validateBulkCSVData(csvData: any[]): { valid: boolean; errors: string[] } {
+    const errors: string[] = [];
+    const validTypes = ['computers', 'monitors', 'headsets', 'mouse', 'keyboards', 'cameras'];
+
+    if (csvData.length === 0) {
+      errors.push('No data rows found');
+      return { valid: false, errors };
+    }
+
+    csvData.forEach((row, index) => {
+      const rowNum = index + 1;
+
+      // Check required fields
+      if (!row.name || typeof row.name !== 'string' || !row.name.trim()) {
+        errors.push(`Row ${rowNum}: Missing or invalid 'name' field`);
+      }
+
+      if (!row.type || typeof row.type !== 'string' || !row.type.trim()) {
+        errors.push(`Row ${rowNum}: Missing or invalid 'type' field`);
+      } else {
+        const type = row.type.trim().toLowerCase();
+        if (!validTypes.includes(type)) {
+          errors.push(`Row ${rowNum}: Invalid type '${row.type}'. Must be one of: ${validTypes.join(', ')}`);
+        }
+      }
+    });
+
+    return { valid: errors.length === 0, errors };
   }
 
   // ---- Export dropdown ----
@@ -229,6 +519,7 @@ export class ItInventoryPage implements OnInit {
         { key: 'name', label: 'ITEM' },
         { key: 'total', label: 'TOTAL' },
         { key: 'defects', label: 'DEFECTS' },
+        { key: 'used', label: 'USED' },
         { key: 'available', label: 'AVAILABLE' }
       ];
       this.inventoryService.getSummary().subscribe(response => {

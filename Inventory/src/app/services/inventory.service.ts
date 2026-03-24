@@ -37,4 +37,12 @@ export class InventoryService {
   getItems(type: string): Observable<{ success: boolean; items: InventoryItem[] }> {
     return this.http.get<{ success: boolean; items: InventoryItem[] }>(`${this.apiUrl}/${type}`);
   }
+
+  importItems(type: string, csvData: any[]): Observable<{ success: boolean; imported: number; skipped: number; errors?: string[] }> {
+    return this.http.post<{ success: boolean; imported: number; skipped: number; errors?: string[] }>(`${this.apiUrl}/${type}/import`, { csvData });
+  }
+
+  importBulkItems(csvData: any[]): Observable<{ success: boolean; imported: number; skipped: number; errors?: string[] }> {
+    return this.http.post<{ success: boolean; imported: number; skipped: number; errors?: string[] }>(`${this.apiUrl}/import`, { csvData });
+  }
 }

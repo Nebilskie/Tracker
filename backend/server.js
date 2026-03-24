@@ -239,191 +239,12 @@ async function initializeTables() {
       `);
     };
 
-    const seedTable = async (table, rows) => {
-      const [existing] = await conn.query(
-        `SELECT COUNT(*) as count FROM \`${table}\``
-      );
-      if (existing[0].count === 0) {
-        for (const row of rows) {
-          const cols = Object.keys(row).join(", ");
-          const vals = Object.values(row);
-          const placeholders = vals.map(() => "?").join(", ");
-          await conn.query(
-            `INSERT INTO \`${table}\` (${cols}) VALUES (${placeholders})`,
-            vals
-          );
-        }
-      }
-    };
-
     await createInventoryTable("monitors");
     await createInventoryTable("headsets");
     await createInventoryTable("mouse");
     await createInventoryTable("keyboards");
     await createInventoryTable("cameras");
     await createInventoryTable("computers");
-
-    await seedTable("monitors", [
-      {
-        name: "MN001",
-        status: "Available",
-        manufacturer: "Dell",
-        location: "HQ",
-        model: "U2720Q",
-        last_update: "2026-02-16 10:00:00",
-      },
-      {
-        name: "MN002",
-        status: "Available",
-        manufacturer: "LG",
-        location: "HQ",
-        model: "27GL850",
-        last_update: "2026-02-15 09:00:00",
-      },
-      {
-        name: "MN003",
-        status: "Available",
-        manufacturer: "Samsung",
-        location: "HQ",
-        model: "Odyssey G7",
-        last_update: "2026-02-14 08:00:00",
-      },
-    ]);
-
-    await seedTable("headsets", [
-      {
-        name: "HS001",
-        status: "Available",
-        manufacturer: "Logitech",
-        location: "HQ",
-        model: "H390",
-        last_update: "2026-02-15 10:30:00",
-      },
-      {
-        name: "HS002",
-        status: "Available",
-        manufacturer: "Plantronics",
-        location: "HQ",
-        model: "Voyager 5200",
-        last_update: "2026-02-14 14:20:00",
-      },
-      {
-        name: "HS003",
-        status: "Available",
-        manufacturer: "CORSAIR",
-        location: "HQ",
-        model: "HS70",
-        last_update: "2026-02-13 09:15:00",
-      },
-    ]);
-
-    await seedTable("mouse", [
-      {
-        name: "MS001",
-        status: "Available",
-        manufacturer: "Logitech",
-        location: "HQ",
-        model: "M705",
-        last_update: "2026-02-16 11:45:00",
-      },
-      {
-        name: "MS002",
-        status: "Available",
-        manufacturer: "Razer",
-        location: "HQ",
-        model: "DeathAdder V3",
-        last_update: "2026-02-15 13:20:00",
-      },
-      {
-        name: "MS003",
-        status: "Available",
-        manufacturer: "Microsoft",
-        location: "HQ",
-        model: "Sculpt Comfort",
-        last_update: "2026-02-14 15:00:00",
-      },
-    ]);
-
-    await seedTable("keyboards", [
-      {
-        name: "KB001",
-        status: "Available",
-        manufacturer: "Logitech",
-        location: "HQ",
-        model: "K380",
-        last_update: "2026-02-16 10:10:00",
-      },
-      {
-        name: "KB002",
-        status: "Available",
-        manufacturer: "Corsair",
-        location: "HQ",
-        model: "K95 Platinum",
-        last_update: "2026-02-15 12:30:00",
-      },
-      {
-        name: "KB003",
-        status: "Available",
-        manufacturer: "Microsoft",
-        location: "HQ",
-        model: "Ergonomic Keyboard",
-        last_update: "2026-02-14 14:45:00",
-      },
-    ]);
-
-    await seedTable("cameras", [
-      {
-        name: "CAM001",
-        status: "Available",
-        manufacturer: "Logitech",
-        location: "HQ",
-        model: "C920",
-        last_update: "2026-02-16 09:00:00",
-      },
-      {
-        name: "CAM002",
-        status: "Available",
-        manufacturer: "Microsoft",
-        location: "HQ",
-        model: "LifeCam HD-3000",
-        last_update: "2026-02-15 11:15:00",
-      },
-      {
-        name: "CAM003",
-        status: "Available",
-        manufacturer: "Generic",
-        location: "HQ",
-        model: "USB",
-        last_update: "2026-02-14 16:30:00",
-      },
-    ]);
-
-    await seedTable("computers", [
-      {
-        name: "CPU001",
-        status: "Available",
-        manufacturer: "Intel",
-        location: "HQ",
-        model: "Core i9",
-        last_update: "2026-02-16 12:00:00",
-      },
-      {
-        name: "CPU002",
-        status: "Available",
-        manufacturer: "AMD",
-        location: "HQ",
-        model: "Ryzen 9",
-        last_update: "2026-02-15 12:30:00",
-      },
-      {
-        name: "CPU003",
-        status: "Available",
-        manufacturer: "Intel",
-        location: "HQ",
-        model: "Core i7",
-        last_update: "2026-02-14 13:45:00",
-      },
-    ]);
 
     console.log("✅ Tables ready");
   } finally {
@@ -1097,6 +918,206 @@ app.get("/api/inventory/:type", async (req, res) => {
   } catch (e) {
     console.error("❌ Inventory fetch error:", e);
     res.status(500).json({ success: false });
+  }
+});
+
+app.post("/api/inventory/:type/import", async (req, res) => {
+  const { type } = req.params;
+  const { csvData } = req.body;
+
+  if (!inventoryTables.includes(type)) {
+    return res.status(400).json({ success: false, error: "Invalid inventory type" });
+  }
+
+  if (!csvData || !Array.isArray(csvData)) {
+    return res.status(400).json({ success: false, error: "csvData must be an array of objects" });
+  }
+
+  const conn = await pool.getConnection();
+
+  try {
+    await conn.beginTransaction();
+
+    let importedCount = 0;
+    let skippedCount = 0;
+    const errors = [];
+
+    for (let i = 0; i < csvData.length; i++) {
+      const row = csvData[i];
+
+      try {
+        // Validate required fields
+        if (!row.name || typeof row.name !== 'string' || !row.name.trim()) {
+          errors.push(`Row ${i + 1}: Missing or invalid name`);
+          continue;
+        }
+
+        // Prepare data based on table type
+        const insertData = { name: row.name.trim() };
+
+        if (type === 'computers') {
+          insertData.status = row.status || 'Available';
+          insertData.manufacturer = row.manufacturer || null;
+          insertData.serial_number = row.serial_number || null;
+          // Keep the table type column clean: use a dedicated CSV column if provided.
+          const computerType = (row.computer_type || row.item_type || (row.type && row.type.trim().toLowerCase() !== 'computers' ? row.type : null));
+          insertData.type = computerType || null;
+          insertData.model = row.model || null;
+          insertData.os = row.os || null;
+          insertData.location = row.location || null;
+          insertData.last_update = new Date();
+          insertData.processor = row.processor || null;
+        } else {
+          insertData.status = row.status || 'Available';
+          insertData.manufacturer = row.manufacturer || null;
+          insertData.location = row.location || null;
+          insertData.model = row.model || null;
+          insertData.last_update = new Date();
+        }
+
+        // Check if item already exists
+        const [existing] = await conn.query(
+          `SELECT id FROM \`${type}\` WHERE name = ?`,
+          [insertData.name]
+        );
+
+        if (existing.length > 0) {
+          skippedCount++;
+          continue;
+        }
+
+        // Insert new item
+        await conn.query(
+          `INSERT INTO \`${type}\` SET ?`,
+          [insertData]
+        );
+
+        importedCount++;
+      } catch (rowError) {
+        console.error(`❌ Error processing row ${i + 1}:`, rowError);
+        errors.push(`Row ${i + 1}: ${rowError.message}`);
+      }
+    }
+
+    await conn.commit();
+
+    res.json({
+      success: true,
+      imported: importedCount,
+      skipped: skippedCount,
+      errors: errors.length > 0 ? errors : undefined
+    });
+
+  } catch (e) {
+    await conn.rollback();
+    console.error("❌ Inventory import error:", e);
+    res.status(500).json({ success: false, error: "Import failed" });
+  } finally {
+    conn.release();
+  }
+});
+
+// Bulk import endpoint - supports multiple inventory types in one CSV
+app.post("/api/inventory/import", async (req, res) => {
+  const { csvData } = req.body;
+
+  if (!csvData || !Array.isArray(csvData)) {
+    return res.status(400).json({ success: false, error: "csvData must be an array of objects" });
+  }
+
+  const conn = await pool.getConnection();
+
+  try {
+    await conn.beginTransaction();
+
+    let importedCount = 0;
+    let skippedCount = 0;
+    const errors = [];
+    const currentTime = new Date();
+
+    for (let i = 0; i < csvData.length; i++) {
+      const row = csvData[i];
+
+      try {
+        // Validate required fields
+        if (!row.name || typeof row.name !== 'string' || !row.name.trim()) {
+          errors.push(`Row ${i + 1}: Missing or invalid name`);
+          continue;
+        }
+
+        if (!row.type || typeof row.type !== 'string' || !row.type.trim()) {
+          errors.push(`Row ${i + 1}: Missing or invalid type`);
+          continue;
+        }
+
+        const type = row.type.trim().toLowerCase();
+        if (!inventoryTables.includes(type)) {
+          errors.push(`Row ${i + 1}: Invalid type '${row.type}'. Must be one of: ${inventoryTables.join(', ')}`);
+          continue;
+        }
+
+        // Prepare data based on table type
+        const insertData = { name: row.name.trim() };
+
+        if (type === 'computers') {
+          insertData.status = row.status || 'Available';
+          insertData.manufacturer = row.manufacturer || null;
+          insertData.serial_number = row.serial_number || null;
+          // Avoid inserting inventory category into computer table type column
+          const computerType = (row.computer_type || row.item_type || (row.type && row.type.trim().toLowerCase() !== 'computers' ? row.type : null));
+          insertData.type = computerType || null;
+          insertData.model = row.model || null;
+          insertData.os = row.os || null;
+          insertData.location = row.location || null;
+          insertData.last_update = currentTime;
+          insertData.processor = row.processor || null;
+        } else {
+          insertData.status = row.status || 'Available';
+          insertData.manufacturer = row.manufacturer || null;
+          insertData.location = row.location || null;
+          insertData.model = row.model || null;
+          insertData.last_update = currentTime;
+        }
+
+        // Check if item already exists
+        const [existing] = await conn.query(
+          `SELECT id FROM \`${type}\` WHERE name = ?`,
+          [insertData.name]
+        );
+
+        if (existing.length > 0) {
+          skippedCount++;
+          continue;
+        }
+
+        // Insert new item
+        await conn.query(
+          `INSERT INTO \`${type}\` SET ?`,
+          [insertData]
+        );
+
+        importedCount++;
+      } catch (rowError) {
+        console.error(`❌ Error processing row ${i + 1}:`, rowError);
+        errors.push(`Row ${i + 1}: ${rowError.message}`);
+      }
+    }
+
+    await conn.commit();
+
+    res.json({
+      success: true,
+      imported: importedCount,
+      skipped: skippedCount,
+      errors: errors.length > 0 ? errors : undefined
+    });
+
+  } catch (e) {
+    await conn.rollback();
+    console.error("❌ Bulk inventory import error:", e);
+    res.status(500).json({ success: false, error: "Import failed" });
+  } finally {
+    conn.release();
   }
 });
 
