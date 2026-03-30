@@ -7,6 +7,29 @@
 
   <div class="modal-body">
 
+    <!-- Room Dropdown -->
+    <div class="form-group">
+      <label>Room</label>
+
+      <ion-item class="select-item" lines="none">
+        <ion-select
+          [placeholder]="roomOptions.length ? '-- Select a Room --' : 'No rooms available'"
+          interface="popover"
+          [(ngModel)]="roomId"
+          (ionChange)="onRoomChange()"
+          okText="Select"
+          cancelText="Cancel"
+        >
+          <ion-select-option
+            *ngFor="let room of roomOptions"
+            [value]="room"
+          >
+            {{ room }}
+          </ion-select-option>
+        </ion-select>
+      </ion-item>
+    </div>
+
     <!-- Cubicle Number Dropdown -->
     <div class="form-group">
       <label>Cubicle Number</label>

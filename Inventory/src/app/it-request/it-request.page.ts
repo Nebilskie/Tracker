@@ -44,6 +44,8 @@ export class ItRequestPage implements OnInit {
   selectedRequest: RequestItem | null = null;
   showDetailModal = false;
   currentUser: UserData | null = null;
+    floorplanRows: Array<{ room_id?: string; label?: string }> = [];
+  roomOptions: string[] = [];
   cubicleOptions: string[] = [];
 
   constructor(
@@ -55,35 +57,56 @@ export class ItRequestPage implements OnInit {
 
   ngOnInit() {
     this.loadCurrentUser();
-    this.loadCubicleOptions();
+    this.loadFloorplanData();
     this.loadRequests();
   }
 
-  loadCubicleOptions() {
-    if (!this.currentUser?.id) {
-      this.cubicleOptions = [];
-      return;
-    }
-
+  loadFloorplanData() {
     this.floorplanApi.listFloorplans().subscribe(
       (response: any) => {
         if (response?.success && Array.isArray(response.floorplans)) {
-          const floorplans = response.floorplans as Array<{ label?: string }>;
-          // Collect unique labels for dropdown
-          this.cubicleOptions = [...new Set(
-            floorplans
-              .map((f) => f.label)
-              .filter((label): label is string => typeof label === 'string' && label.trim().length > 0)
+          this.floorplanRows = response.floorplans.map((item: any) => ({
+            room_id: item.room_id,
+            label: item.label
+          }));
+
+          this.roomOptions = [...new Set(
+            this.floorplanRows
+              .map((fp) => fp.room_id)
+              .filter((roomId): roomId is string => typeof roomId === 'string' && roomId.trim().length > 0)
           )];
+
+          if (this.roomOptions.length) {
+            this.cubicleOptions = this.getCubicleOptionsForRoom(this.roomOptions[0]);
+          } else {
+            this.cubicleOptions = [];
+          }
         } else {
+          this.floorplanRows = [];
+          this.roomOptions = [];
           this.cubicleOptions = [];
         }
       },
       (error) => {
-        console.error('Error loading floorplans for cubicle dropdown:', error);
+        console.error('Error loading floorplans for room/cubicle dropdown:', error);
+        this.floorplanRows = [];
+        this.roomOptions = [];
         this.cubicleOptions = [];
       }
     );
+  }
+
+  getCubicleOptionsForRoom(roomId: string): string[] {
+    if (!roomId) {
+      return [];
+    }
+
+    return [...new Set(
+      this.floorplanRows
+        .filter((fp) => fp.room_id === roomId && fp.label && fp.label !== '__ROOM__')
+        .map((fp) => (fp.label || '').trim())
+        .filter((label): label is string => !!label)
+    )];
   }
 
   loadCurrentUser() {
@@ -240,7 +263,8 @@ export class ItRequestPage implements OnInit {
       cssClass: 'request-modal-container',
       presentingElement: await this.modalController.getTop(),
       componentProps: {
-        cubicleOptions: this.cubicleOptions
+        roomOptions: this.roomOptions,
+        floorplanRows: this.floorplanRows
       }
     });
 
@@ -248,9 +272,9 @@ export class ItRequestPage implements OnInit {
 
     const { data } = await modal.onDidDismiss();
 
-    if (data && data.cubicleNumber && data.peripheral) {
+    if (data && data.roomId && data.cubicleNumber && data.peripheral) {
       this.submitRequest(
-        `${data.peripheral} for Cubicle ${data.cubicleNumber}`,
+        `${data.peripheral} for Cubicle ${data.cubicleNumber} in Room ${data.roomId}`,
         data.reason || ''
       );
     }

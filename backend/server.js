@@ -3,7 +3,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const fs = require("fs");
-const pool = require("./db");
+const pool = require("./db");   
 
 const app = express();
 
@@ -36,7 +36,6 @@ const statusTableMap = {
 };
 
 const validStatuses = Object.keys(statusTableMap);
-const ROOM_PLACEHOLDER_LABEL = "__ROOM__";
 
 /* =========================
    INIT TABLES
@@ -143,13 +142,24 @@ async function initializeTables() {
       );
     }
 
+     await conn.query(`
+      CREATE TABLE IF NOT EXISTS floorplan_rooms (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id VARCHAR(100),
+        room_name VARCHAR(100) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_user_room_name (user_id, room_name)
+      )
+    `);
+
     await conn.query(`
       CREATE TABLE IF NOT EXISTS floorplans (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id VARCHAR(100),
         label VARCHAR(100),
         item_type VARCHAR(50) DEFAULT 'cubicle',
-        room_id VARCHAR(100),
+        room_id INT,
         x INT,
         y INT,
         w INT,
@@ -158,9 +168,12 @@ async function initializeTables() {
         version INT DEFAULT 1,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        UNIQUE KEY uniq_user_room (user_id, room_id, label)
+        UNIQUE KEY uniq_user_room_label (user_id, room_id, label),
+        FOREIGN KEY (room_id) REFERENCES floorplan_rooms(id) ON DELETE CASCADE
       )
     `);
+
+    // Clean up legacy room placeholder entries in the floorplans table.
 
     const [createdOrderCol] = await conn.query(
       "SHOW COLUMNS FROM floorplans LIKE 'created_order'"
@@ -202,7 +215,7 @@ async function initializeTables() {
       CREATE TABLE IF NOT EXISTS inventory (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id VARCHAR(100),
-        room_id VARCHAR(100),
+        room_id INT,
         label VARCHAR(100),
         monitors VARCHAR(255) DEFAULT NULL,
         headsets VARCHAR(255) DEFAULT NULL,
@@ -212,7 +225,8 @@ async function initializeTables() {
         computers VARCHAR(255) DEFAULT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        UNIQUE KEY uniq_user_room_label (user_id, room_id, label)
+        UNIQUE KEY uniq_user_room_label (user_id, room_id, label),
+        FOREIGN KEY (room_id) REFERENCES floorplan_rooms(id) ON DELETE CASCADE
       )
     `);
 
@@ -261,7 +275,9 @@ async function upsertFloorplanInventory(conn, userId, roomId, floorItems) {
   await conn.query("DELETE FROM inventory WHERE room_id = ?", [roomId]);
 
   for (const item of floorItems) {
-    if (!item?.label || item.label === ROOM_PLACEHOLDER_LABEL) continue;
+    // 🔥 SKIP ROOM + INVALID
+    if (!item?.label || item.label === "__ROOM__") continue;
+
     if ((item.type || item.itemType || "cubicle") !== "cubicle") continue;
 
     await conn.query(
@@ -341,24 +357,7 @@ function inventoryColumnFromRequestType(table) {
   return columnMap[table] || null;
 }
 
-async function setFloorplanInventoryValue(conn, roomId, cubicleLabel, column, value) {
-  if (!roomId || !cubicleLabel || !column || cubicleLabel === ROOM_PLACEHOLDER_LABEL) {
-    return;
-  }
 
-  const [rows] = await conn.query(
-    "SELECT id FROM inventory WHERE room_id = ? AND label = ? LIMIT 1",
-    [roomId, cubicleLabel]
-  );
-
-  if (!rows.length) return;
-
-  const rowId = rows[0].id;
-  await conn.query(
-    `UPDATE inventory SET ${column} = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-    [value, rowId]
-  );
-}
 
 async function reserveRequestedItem(conn, requestId, requestText) {
   const targetTable = resolveInventoryTableFromRequestText(requestText);
@@ -559,36 +558,94 @@ app.get("/api/it-requests", async (_req, res) => {
 /* =========================
    FLOORPLANS / ROOMS
 ========================= */
-app.post("/rooms", async (req, res) => {
+app.post("/rooms", async (req,res)=>{
   const { roomId, userId } = req.body;
-
   if (!roomId || !userId) {
-    return res.status(400).json({ success: false, error: "roomId and userId are required" });
+    return res.status(400).json({ success:false, error:"roomId and userId required" });
   }
 
+  const conn = await pool.getConnection();
+
   try {
-    const [existing] = await pool.query(
-      "SELECT id FROM floorplans WHERE room_id = ? LIMIT 1",
-      [roomId]
+    const [existing] = await conn.query(
+      "SELECT id FROM floorplan_rooms WHERE user_id=? AND room_name=? LIMIT 1",
+      [userId, roomId]
     );
 
-    if (!existing.length) {
-      await pool.query(
-        "INSERT INTO floorplans (user_id, label, item_type, room_id, x, y, w, h, created_order, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [userId, ROOM_PLACEHOLDER_LABEL, "room", roomId, 0, 0, 0, 0, 0, 1]
+    let roomRecordId;
+
+    if (existing.length) {
+      roomRecordId = existing[0].id;
+    } else {
+      const [result] = await conn.query(
+        "INSERT INTO floorplan_rooms (user_id, room_name) VALUES (?,?)",
+        [userId, roomId]
       );
+      roomRecordId = result.insertId;
     }
 
-    return res.json({ success: true });
-  } catch (e) {
-    console.error("❌ Create room error:", e);
-    return res.status(500).json({ success: false, error: "Server error creating room" });
+    // 🔥 CLEAN ANY BAD ROOM DATA IN FLOORPLANS
+    await conn.query(
+      "DELETE FROM floorplans WHERE room_id = ? AND (item_type = 'room' OR label = '__ROOM__')",
+      [roomRecordId]
+    );
+
+    res.json({ success:true, roomId:roomRecordId });
+
+  } catch(e) {
+    console.error(e);
+    res.status(500).json({ success:false, error:"Server error creating room" });
+  } finally {
+    conn.release();
   }
 });
 
+app.get("/floorplans/:roomId", async (req,res)=>{
+  const roomIdParam = req.params.roomId;
+  const conn = await pool.getConnection();
+
+  try {
+    let roomId;
+    if (/^\d+$/.test(roomIdParam)) roomId = parseInt(roomIdParam,10);
+    else {
+      const [roomRecord] = await conn.query(
+        "SELECT id FROM floorplan_rooms WHERE LOWER(TRIM(room_name)) = LOWER(TRIM(?)) LIMIT 1",
+        [roomIdParam]
+      );
+      if(!roomRecord.length) return res.json({success:true,floorplan:null});
+      roomId = roomRecord[0].id;
+    }
+
+    const [rows] = await conn.query(
+      "SELECT * FROM floorplans WHERE room_id = ? AND item_type != 'room' AND (label IS NULL OR label != '__ROOM__') ORDER BY created_order ASC, id ASC",
+      [roomId]
+    );
+
+    const cubicles = rows.map(row=>({
+      id:Number(row.id),
+      type:row.item_type||"cubicle",
+      label:row.item_type==="cubicle"?row.label:"",
+      x:Number(row.x||0),
+      y:Number(row.y||0),
+      w:Number(row.w||60),
+      h:Number(row.h||40),
+      createdOrder:Number(row.created_order||0)
+    }));
+
+    res.json({ success:true, floorplan:{ roomId, userId:rows[0]?.user_id||null, layout:{cubicles} } });
+  } catch(e){
+    console.error(e);
+    res.status(500).json({ success:false, error:"Server error loading floorplan" });
+  } finally { conn.release(); }
+});
+
 app.post("/floorplans/:roomId", async (req, res) => {
-  const roomId = req.params.roomId;
-  const { userId, cubicles, layout } = req.body;
+  const roomIdParam = req.params.roomId;
+  const { userId, layout, cubicles } = req.body;
+
+  if (!roomIdParam || !userId) {
+    return res.status(400).json({ success: false, error: "roomId and userId are required" });
+  }
 
   const floorItems = Array.isArray(cubicles)
     ? cubicles
@@ -596,233 +653,161 @@ app.post("/floorplans/:roomId", async (req, res) => {
     ? layout.cubicles
     : [];
 
-  if (!userId || !roomId) {
-    return res.status(400).json({ success: false, error: "userId and roomId are required" });
-  }
-
   const conn = await pool.getConnection();
 
   try {
     await conn.beginTransaction();
 
-    await conn.query("DELETE FROM floorplans WHERE room_id = ?", [roomId]);
-    await conn.query("DELETE FROM inventory WHERE room_id = ?", [roomId]);
+    let roomId;
 
-    await conn.query(
-      "INSERT INTO floorplans (user_id, label, item_type, room_id, x, y, w, h, created_order, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      [userId, ROOM_PLACEHOLDER_LABEL, "room", roomId, 0, 0, 0, 0, 0, 1]
-    );
+    if (/^\d+$/.test(roomIdParam)) {
+      roomId = parseInt(roomIdParam, 10);
+    } else {
+      const [roomRecord] = await conn.query(
+        "SELECT id FROM floorplan_rooms WHERE user_id = ? AND room_name = ? LIMIT 1",
+        [userId, roomIdParam]
+      );
 
-    if (floorItems.length) {
-      for (const item of floorItems) {
-        await conn.query(
-          `INSERT INTO floorplans
-           (user_id, label, item_type, room_id, x, y, w, h, created_order, version)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            userId,
-            item.label || null,
-            item.type || item.itemType || "cubicle",
-            roomId,
-            Number(item.x ?? 0),
-            Number(item.y ?? 0),
-            Number(item.w ?? 60),
-            Number(item.h ?? 40),
-            Number(item.createdOrder ?? item.created_order ?? 0),
-            1,
-          ]
+      if (!roomRecord.length) {
+        const [insertResult] = await conn.query(
+          "INSERT INTO floorplan_rooms (user_id, room_name) VALUES (?, ?)",
+          [userId, roomIdParam]
         );
+        roomId = insertResult.insertId;
+      } else {
+        roomId = roomRecord[0].id;
       }
     }
 
-    await upsertFloorplanInventory(conn, userId, roomId, floorItems);
-    await conn.commit();
+    // 🔥 HARD CLEAN BEFORE INSERT
+    await conn.query(
+      "DELETE FROM floorplans WHERE room_id = ?",
+      [roomId]
+    );
 
-    return res.json({ success: true });
+    // 🔥 FILTER OUT ROOM ITEMS
+    const itemsToSave = floorItems.filter(
+      (item) =>
+        (item?.type || item?.itemType || "cubicle").toLowerCase() !== "room" &&
+        item?.label !== "__ROOM__"
+    );
+
+    // 🔥 INSERT ONLY VALID ITEMS
+    for (const item of itemsToSave) {
+      const itemType = (item?.type || item?.itemType || "cubicle").toLowerCase();
+
+      await conn.query(
+        `INSERT INTO floorplans
+        (user_id, label, item_type, room_id, x, y, w, h, created_order, version)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          userId,
+          item?.label || null,
+          itemType,
+          roomId,
+          Number(item?.x ?? 0),
+          Number(item?.y ?? 0),
+          Number(item?.w ?? 60),
+          Number(item?.h ?? 40),
+          Number(item?.createdOrder ?? item?.created_order ?? 0),
+          1,
+        ]
+      );
+    }
+
+    await upsertFloorplanInventory(conn, userId, roomId, itemsToSave);
+
+    await conn.commit();
+    res.json({ success: true });
+
   } catch (e) {
     await conn.rollback();
     console.error("❌ Save floorplan error:", e);
-    return res.status(500).json({ success: false, error: "Server error saving floorplan" });
+    res.status(500).json({ success: false, error: "Server error saving floorplan" });
   } finally {
     conn.release();
   }
 });
 
-app.get("/floorplans/:roomId", async (req, res) => {
-  const roomId = req.params.roomId;
-
-  if (!roomId) {
-    return res.status(400).json({ success: false, error: "roomId is required" });
-  }
+app.get("/cubicles", async (req,res)=>{
+  const roomId = req.query.roomId;
+  if(!roomId) return res.status(400).json({success:false,error:"roomId required"});
 
   try {
     const [rows] = await pool.query(
-      "SELECT * FROM floorplans WHERE room_id = ? ORDER BY created_order ASC, id ASC",
+      "SELECT * FROM floorplans WHERE room_id = ? AND item_type != 'room' AND (label IS NULL OR label != '__ROOM__') ORDER BY created_order ASC, id ASC",
       [roomId]
     );
 
-    if (!rows.length) {
-      return res.json({ success: true, floorplan: null });
-    }
-
-    const cubicles = rows
-      .filter((row) => row.label !== ROOM_PLACEHOLDER_LABEL)
-      .map((row) => ({
-        id: Number(row.id),
-        type: row.item_type || "cubicle",
-        label: row.item_type === "cubicle" ? row.label : "",
-        x: Number(row.x || 0),
-        y: Number(row.y || 0),
-        w: Number(row.w || 60),
-        h: Number(row.h || 40),
-        color:
-          row.color ||
-          (row.item_type === "wall"
-            ? "#5f6368"
-            : row.item_type === "door"
-            ? "#c49a6c"
-            : row.item_type === "table"
-            ? "#8d6e63"
-            : "#4caf50"),
-        locked:
-          row.locked === 1 ||
-          row.locked === true ||
-          row.locked === "1" ||
-          false,
-        createdOrder: Number(row.created_order || 0),
-      }));
-
-    return res.json({
-      success: true,
-      floorplan: {
-        roomId,
-        userId: rows[0]?.user_id || null,
-        layout: { cubicles },
-      },
-    });
-  } catch (e) {
-    console.error("❌ Load floorplan error:", e);
-    return res.status(500).json({ success: false, error: "Server error loading floorplan" });
-  }
-});
-
-app.post("/cubicles", async (req, res) => {
-  const { userId, roomId, label, x, y, w, h, createdOrder, itemType } = req.body;
-
-  if (!userId || !roomId) {
-    return res.status(400).json({
-      success: false,
-      error: "userId and roomId are required",
-    });
-  }
-
-  const resolvedType = itemType || "cubicle";
-  const resolvedLabel =
-    resolvedType === "cubicle" ? label : `__${resolvedType.toUpperCase()}__${Date.now()}`;
-
-  const conn = await pool.getConnection();
-
-  try {
-    const [roomExists] = await conn.query(
-      "SELECT id FROM floorplans WHERE room_id = ? LIMIT 1",
-      [roomId]
-    );
-
-    if (!roomExists.length) {
-      await conn.query(
-        "INSERT INTO floorplans (user_id, label, item_type, room_id, x, y, w, h, created_order, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [userId, ROOM_PLACEHOLDER_LABEL, "room", roomId, 0, 0, 0, 0, 0, 1]
-      );
-    }
-
-    const [existingItem] = await conn.query(
-      "SELECT id FROM floorplans WHERE room_id = ? AND label = ? LIMIT 1",
-      [roomId, resolvedLabel]
-    );
-
-    if (existingItem.length) {
-      await conn.query(
-        `UPDATE floorplans
-         SET user_id = ?, item_type = ?, x = ?, y = ?, w = ?, h = ?, created_order = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP
-         WHERE room_id = ? AND label = ?`,
-        [
-          userId,
-          resolvedType,
-          x ?? 0,
-          y ?? 0,
-          w ?? 60,
-          h ?? 40,
-          createdOrder ?? 0,
-          roomId,
-          resolvedLabel,
-        ]
-      );
-
-      return res.json({ success: true, cubicleId: existingItem[0].id });
-    }
-
-    const [insertResult] = await conn.query(
-      `INSERT INTO floorplans
-       (user_id, label, item_type, room_id, x, y, w, h, created_order, version)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        userId,
-        resolvedLabel,
-        resolvedType,
-        roomId,
-        x ?? 0,
-        y ?? 0,
-        w ?? 60,
-        h ?? 40,
-        createdOrder ?? 0,
-        1,
-      ]
-    );
-
-    return res.json({ success: true, cubicleId: insertResult.insertId || null });
-  } catch (e) {
-    console.error("❌ Add cubicle error:", e);
-    return res.status(500).json({ success: false, error: "Server error adding cubicle" });
-  } finally {
-    conn.release();
+    const cubicles = rows.map(row=>({
+      ...row,
+      type:row.item_type||"cubicle",
+      label:row.item_type==="cubicle"?row.label:"",
+      x:Number(row.x||0),
+      y:Number(row.y||0),
+      w:Number(row.w||60),
+      h:Number(row.h||40),
+      createdOrder:Number(row.created_order||0)
+    }));
+    res.json({success:true,cubicles});
+  } catch(e){
+    console.error(e);
+    res.status(500).json({success:false,error:"Server error fetching cubicles"});
   }
 });
 
 app.get("/floorplans", async (_req, res) => {
   try {
     const [rows] = await pool.query(`
-      SELECT room_id, MAX(updated_at) AS updated_at
-      FROM floorplans
-      GROUP BY room_id
-      ORDER BY room_id ASC
-    `);
+      SELECT f.room_id, f.label, fr.room_name,
+             IF(fr.room_name IS NOT NULL, fr.room_name, f.room_id) as display_room_id
+      FROM floorplans f
+      LEFT JOIN floorplan_rooms fr ON f.room_id = fr.id
+      WHERE f.item_type != 'room' AND f.label IS NOT NULL AND TRIM(f.label) != '' AND f.label != ?
+      ORDER BY display_room_id ASC, f.label ASC
+    `, ['__ROOM__']);
 
-    return res.json({ success: true, floorplans: rows });
+    // Map to return room_id as the display room name for frontend compatibility
+    const mappedRows = rows.map((row) => ({
+      room_id: row.room_name || row.room_id,
+      label: row.label
+    }));
+
+    return res.json({ success: true, floorplans: mappedRows });
   } catch (e) {
     console.error("❌ List floorplans error:", e);
     return res.status(500).json({ success: false, error: "Server error listing floorplans" });
   }
 });
 
-app.get("/floorplan-inventory", async (req, res) => {
-  const roomId = req.query.roomId;
-
-  if (!roomId) {
-    return res.status(400).json({ success: false, error: "roomId is required" });
+app.get("/floorplan-rooms", async (req,res)=>{
+  try {
+    const userId = req.query.userId;
+    let query = "SELECT id, room_name FROM floorplan_rooms";
+    const params = [];
+    if(userId){
+      query += " WHERE user_id=?"; 
+      params.push(userId);
+    }
+    query += " ORDER BY room_name ASC";
+    const [rows] = await pool.query(query,params);
+    res.json({ success:true, rooms:rows });
+  } catch(e){
+    console.error(e);
+    res.status(500).json({ success:false, error:"Server error listing rooms" });
   }
+});
+
+app.get("/floorplan-inventory", async (req,res)=>{
+  const roomId = req.query.roomId;
+  if(!roomId) return res.status(400).json({success:false,error:"roomId required"});
 
   try {
-    const [rows] = await pool.query(
-      `SELECT * FROM inventory WHERE room_id = ? ORDER BY id ASC`,
-      [roomId]
-    );
-    return res.json({ success: true, inventory: rows });
-  } catch (e) {
-    console.error("❌ List floorplan inventory error:", e);
-    return res.status(500).json({
-      success: false,
-      error: "Server error listing floorplan inventory",
-    });
+    const [rows] = await pool.query("SELECT * FROM inventory WHERE room_id=? ORDER BY id ASC",[roomId]);
+    res.json({success:true,inventory:rows});
+  } catch(e){
+    console.error(e);
+    res.status(500).json({success:false,error:"Server error listing inventory"});
   }
 });
 
@@ -837,15 +822,11 @@ app.get("/cubicles", async (req, res) => {
   }
 
   try {
-    const [rows] = await pool.query(
-      "SELECT * FROM floorplans WHERE room_id = ? ORDER BY created_order ASC, id ASC",
-      [roomId]
-    );
+  
 
     res.json({
-      success: true,
+      success: true, 
       cubicles: rows
-        .filter((row) => row.label !== ROOM_PLACEHOLDER_LABEL)
         .map((row) => ({
           ...row,
           type: row.item_type || "cubicle",

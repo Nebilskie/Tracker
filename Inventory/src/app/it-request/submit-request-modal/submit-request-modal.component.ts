@@ -1,4 +1,4 @@
-import { Component, Input } from '@angular/core';
+import { Component, Input, OnInit } from '@angular/core';
 import { ModalController, IonicModule } from '@ionic/angular';
 import { FormsModule } from '@angular/forms';
 import { CommonModule } from '@angular/common';
@@ -13,7 +13,11 @@ import { CommonModule } from '@angular/common';
 
 export class SubmitRequestModalComponent {
 
-  @Input() cubicleOptions: string[] = [];
+  @Input() roomOptions: string[] = [];
+  @Input() floorplanRows: Array<{ room_id?: string; label?: string }> = [];
+
+  roomId: string = '';
+  cubicleOptions: string[] = [];
   cubicleNumber: string = '';
   peripheral: string = '';
   reason: string = '';
@@ -29,11 +33,42 @@ export class SubmitRequestModalComponent {
 
   constructor(private modalController: ModalController) {}
 
+  ngOnInit() {
+    if (this.roomOptions.length) {
+      this.roomId = this.roomOptions[0];
+      this.updateCubicleOptions();
+    }
+  }
+
+  onRoomChange() {
+    this.updateCubicleOptions();
+    this.cubicleNumber = '';
+  }
+
+  private updateCubicleOptions() {
+    if (!this.roomId) {
+      this.cubicleOptions = [];
+      return;
+    }
+
+    this.cubicleOptions = [...new Set(
+      this.floorplanRows
+        .filter((item) => item.room_id === this.roomId && item.label && item.label !== '__ROOM__')
+        .map((item) => (item.label || '').trim())
+        .filter((label): label is string => label.length > 0)
+    )];
+  }
+
   dismiss() {
     this.modalController.dismiss();
   }
 
   submit() {
+
+    if (!this.roomId) {
+      alert('Please select a Room');
+      return;
+    }
 
     if (!this.cubicleNumber) {
       alert('Please select a Cubicle Number');
@@ -46,6 +81,7 @@ export class SubmitRequestModalComponent {
     }
 
     this.modalController.dismiss({
+      roomId: this.roomId,
       cubicleNumber: this.cubicleNumber.trim(),
       peripheral: this.peripheral,
       reason: this.reason.trim()

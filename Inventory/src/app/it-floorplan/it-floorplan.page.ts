@@ -5,6 +5,7 @@ import {
   ViewChild,
   ElementRef
 } from '@angular/core';
+import { firstValueFrom } from 'rxjs';
 import { Preferences } from '@capacitor/preferences';
 import { FloorplanApiService, FloorplanLayout } from '../services/floorplan-api';
 
@@ -48,9 +49,9 @@ type RectBox = {
 export class ItFloorplanPage implements OnInit, OnDestroy {
   @ViewChild('containerRef', { static: false }) containerRef!: ElementRef<HTMLElement>;
 
-  roomId = 'main-office';
+  roomId = '';
   userId: number | null = null;
-  rooms: string[] = ['main-office'];
+  rooms: string[] = [];
 
   selectedColor = '#4caf50';
   selectedItemType: FloorItemType = 'cubicle';
@@ -178,7 +179,7 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
     const { value } = await Preferences.get({ key: this.KEY_FLOORPLAN_ROOMS });
 
     if (!value) {
-      this.rooms = ['main-office'];
+      this.rooms = [];
       return;
     }
 
@@ -187,14 +188,10 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
       if (Array.isArray(parsed) && parsed.length) {
         this.rooms = [...new Set(parsed)];
       } else {
-        this.rooms = ['main-office'];
+        this.rooms = [];
       }
     } catch {
-      this.rooms = ['main-office'];
-    }
-
-    if (!this.rooms.includes('main-office')) {
-      this.rooms.unshift('main-office');
+      this.rooms = [];
     }
   }
 
@@ -206,19 +203,22 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
   }
 
   private async loadRoomsFromDb() {
-    this.floorplanApi.listFloorplans().subscribe({
-      next: async (res: any) => {
-        if (res?.success && Array.isArray(res.floorplans)) {
-          const dbRooms = res.floorplans
-            .map((row: any) => row.room_id)
-            .filter((roomId: string) => !!roomId);
+    try {
+      const res: any = await firstValueFrom(this.floorplanApi.listRooms(this.userId || undefined));
+      if (res?.success && Array.isArray(res.rooms)) {
+        const dbRooms: string[] = res.rooms
+          .map((row: any) => row.room_name)
+          .filter((roomName: string) => !!roomName);
 
-          this.rooms = [...new Set(['main-office', ...this.rooms, ...dbRooms])];
-          await this.saveRoomsToPreferences();
+        this.rooms = [...new Set(dbRooms)];
+        if (this.rooms.length > 0 && !this.roomId) {
+          this.roomId = this.rooms[0];
         }
-      },
-      error: (err) => console.error('❌ Failed loading rooms from DB:', err)
-    });
+        await this.saveRoomsToPreferences();
+      }
+    } catch (err) {
+      console.error('❌ Failed loading rooms from DB:', err);
+    }
   }
 
   async createRoom() {
@@ -265,6 +265,12 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
   }
 
   private async loadFloorplanForRoom(room: string) {
+    if (!room) {
+      this.floorItems = [];
+      this.cubicleCount = 1;
+      return;
+    }
+
     this.floorplanApi.loadFloorplan(room).subscribe({
       next: (res: any) => {
         if (res.success && res.floorplan && res.floorplan.layout) {

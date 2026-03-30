@@ -24,6 +24,11 @@ export class FloorplanApiService {
     return this.http.get(`${this.baseUrl}/floorplans`);
   }
 
+  listRooms(userId?: number): Observable<any> {
+    const qp = userId ? `?userId=${encodeURIComponent(userId)}` : '';
+    return this.http.get(`${this.baseUrl}/floorplan-rooms${qp}`);
+  }
+
   createRoom(roomId: string, userId: number): Observable<any> {
     return this.http.post(`${this.baseUrl}/rooms`, { roomId, userId });
   }
