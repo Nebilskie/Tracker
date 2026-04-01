@@ -1,13 +1,13 @@
 import { TestBed } from '@angular/core/testing';
 
-import { FloorplanApi } from './floorplan-api';
+import { FloorplanApiService } from './floorplan-api';
 
 describe('FloorplanApi', () => {
-  let service: FloorplanApi;
+  let service: FloorplanApiService;
 
   beforeEach(() => {
     TestBed.configureTestingModule({});
-    service = TestBed.inject(FloorplanApi);
+    service = TestBed.inject(FloorplanApiService);
   });
 
   it('should be created', () => {

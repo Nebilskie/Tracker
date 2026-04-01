@@ -190,11 +190,22 @@
         height: item.h + 'px',
         background: item.color
       }"
+      (mouseenter)="onCubicleHover(item.type === 'cubicle' ? item.label : null)"
+      (mouseleave)="onCubicleHover(null)"
       (click)="selectItem(item.id, $event)"
       (pointerdown)="onItemPointerDown($event, item)"
     >
       <div class="floor-item-label" *ngIf="item.type === 'cubicle'">
         {{ item.label }}
+      </div>
+
+      <div
+        class="cubicle-tooltip"
+        *ngIf="item.type === 'cubicle' && hoveredCubicleLabel === item.label"
+      >
+        <div *ngFor="let line of getInventoryTooltipLines(item.label)">
+          {{ line }}
+        </div>
       </div>
 
       <!-- RESIZE HANDLES -->

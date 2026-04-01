@@ -62,6 +62,8 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
   addMode = false;
 
   selectedItemId: number | null = null;
+  hoveredCubicleLabel: string | null = null;
+  cubicleInventory: Record<string, any> = {};
 
   toolboxX = 30;
   toolboxY = 250;
@@ -112,6 +114,9 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
   private resizeMove = (e: PointerEvent) => this.onResizeMove(e);
   private resizeUp = () => this.onResizeEnd();
 
+  private inventoryRefreshInterval: any = null;
+  private readonly INVENTORY_REFRESH_INTERVAL = 5000; // 5 seconds
+
   handleKeyDelete = async (e: KeyboardEvent) => {
     if (!this.isEditMode) return;
     if (!this.selectedItemId) return;
@@ -158,6 +163,11 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
     window.removeEventListener('pointerup', this.resizeUp);
 
     window.removeEventListener('keydown', this.handleKeyDelete);
+
+    if (this.inventoryRefreshInterval) {
+      clearInterval(this.inventoryRefreshInterval);
+      this.inventoryRefreshInterval = null;
+    }
   }
 
   private async getCurrentUserId(): Promise<number | null> {
@@ -252,6 +262,12 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
   async switchRoom(room: string) {
     if (this.roomId === room) return;
 
+    // Clear old inventory refresh interval before switching rooms
+    if (this.inventoryRefreshInterval) {
+      clearInterval(this.inventoryRefreshInterval);
+      this.inventoryRefreshInterval = null;
+    }
+
     this.roomId = room;
     await Preferences.set({ key: this.KEY_CURRENT_ROOM, value: room });
 
@@ -301,6 +317,74 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
         this.cubicleCount = 1;
       }
     });
+
+    this.loadFloorplanInventory(room);
+  }
+
+  private loadFloorplanInventory(room: string) {
+    if (!room) {
+      this.cubicleInventory = {};
+      return;
+    }
+
+    // Clear any existing interval before setting up a new one
+    if (this.inventoryRefreshInterval) {
+      clearInterval(this.inventoryRefreshInterval);
+      this.inventoryRefreshInterval = null;
+    }
+
+    // Load inventory immediately
+    this.refreshInventoryFromServer(room);
+
+    // Set up auto-refresh every 5 seconds
+    this.inventoryRefreshInterval = setInterval(() => {
+      this.refreshInventoryFromServer(room);
+    }, this.INVENTORY_REFRESH_INTERVAL);
+  }
+
+  private refreshInventoryFromServer(room: string) {
+    this.floorplanApi.getFloorplanInventory(room).subscribe({
+      next: (res: any) => {
+        if (res?.success && Array.isArray(res.inventory)) {
+          this.cubicleInventory = {};
+          res.inventory.forEach((row: any) => {
+            if (row?.label) {
+              this.cubicleInventory[row.label] = row;
+            }
+          });
+        } else {
+          this.cubicleInventory = {};
+        }
+      },
+      error: (err: any) => {
+        console.error('❌ Load cubicle inventory failed:', err);
+        this.cubicleInventory = {};
+      },
+    });
+  }
+
+  onCubicleHover(label: string | null) {
+    this.hoveredCubicleLabel = label;
+  }
+
+  getInventoryTooltipLines(label: string): string[] {
+    const row = this.cubicleInventory[label] || {};
+
+    const monitor = row.monitors ? String(row.monitors) : '-';
+    const headset = row.headsets ? String(row.headsets) : '-';
+    const camera = row.cameras ? String(row.cameras) : '-';
+    const mouse = row.mouse ? String(row.mouse) : '-';
+    const keyboard = row.keyboards ? String(row.keyboards) : '-';
+    const computer = row.computers ? String(row.computers) : '-';
+
+    return [
+      `Monitor: ${monitor}`,
+      `Headset: ${headset}`,
+      `Camera: ${camera}`,
+      `Mouse: ${mouse}`,
+      `Keyboard: ${keyboard}`,
+      `Computer: ${computer}`,
+    ];
   }
 
   toggleToolbox(editBtn?: HTMLElement) {

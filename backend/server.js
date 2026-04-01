@@ -36,6 +36,7 @@ const statusTableMap = {
 };
 
 const validStatuses = Object.keys(statusTableMap);
+const ROOM_PLACEHOLDER_LABEL = "__ROOM__";
 
 /* =========================
    INIT TABLES
@@ -357,6 +358,26 @@ function inventoryColumnFromRequestType(table) {
   return columnMap[table] || null;
 }
 
+async function setFloorplanInventoryValue(conn, roomId, label, column, value) {
+  if (!roomId || !label || !column) return;
+
+  const validColumns = ["monitors", "headsets", "cameras", "mouse", "keyboards", "computers"];
+  if (!validColumns.includes(column)) return;
+
+  // Update existing inventory row for the cubicle
+  const [result] = await conn.query(
+    `UPDATE inventory SET ${column} = ? WHERE room_id = ? AND label = ?`,
+    [value, roomId, label]
+  );
+
+  // If no row exists yet, insert one so the cubicle gets updated
+  if (result.affectedRows === 0) {
+    await conn.query(
+      `INSERT INTO inventory (user_id, room_id, label, ${column}) VALUES (?, ?, ?, ?)`,
+      [null, roomId, label, value]
+    );
+  }
+}
 
 
 async function reserveRequestedItem(conn, requestId, requestText) {
@@ -799,11 +820,25 @@ app.get("/floorplan-rooms", async (req,res)=>{
 });
 
 app.get("/floorplan-inventory", async (req,res)=>{
-  const roomId = req.query.roomId;
-  if(!roomId) return res.status(400).json({success:false,error:"roomId required"});
+  const roomIdParam = req.query.roomId;
+  if(!roomIdParam) return res.status(400).json({success:false,error:"roomId required"});
 
   try {
-    const [rows] = await pool.query("SELECT * FROM inventory WHERE room_id=? ORDER BY id ASC",[roomId]);
+    let roomId;
+    if (/^\d+$/.test(String(roomIdParam))) {
+      roomId = parseInt(String(roomIdParam), 10);
+    } else {
+      const [roomRecord] = await pool.query(
+        "SELECT id FROM floorplan_rooms WHERE LOWER(TRIM(room_name)) = LOWER(TRIM(?)) LIMIT 1",
+        [roomIdParam]
+      );
+      if (!roomRecord.length) {
+        return res.json({ success:true, inventory: [] });
+      }
+      roomId = roomRecord[0].id;
+    }
+
+    const [rows] = await pool.query("SELECT * FROM inventory WHERE room_id=? ORDER BY id ASC", [roomId]);
     res.json({success:true,inventory:rows});
   } catch(e){
     console.error(e);

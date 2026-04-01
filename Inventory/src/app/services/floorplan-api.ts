@@ -32,4 +32,8 @@ export class FloorplanApiService {
   createRoom(roomId: string, userId: number): Observable<any> {
     return this.http.post(`${this.baseUrl}/rooms`, { roomId, userId });
   }
+
+  getFloorplanInventory(roomId: string): Observable<any> {
+    return this.http.get(`${this.baseUrl}/floorplan-inventory?roomId=${encodeURIComponent(roomId)}`);
+  }
 }

@@ -270,6 +270,33 @@
   cursor: pointer;
 }
 
+.cubicle-tooltip {
+  position: absolute;
+  top: -80px;
+  left: 30px;
+  min-width: 146px;
+  padding: 8px;
+  background: rgba(32, 33, 36, 0.92);
+  color: #ffffff;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  z-index: 999;
+  pointer-events: none;
+  box-shadow: 0 8px 14px rgba(0, 0, 0, 0.25);
+  text-align: left;
+}
+
+.cubicle-tooltip::after {
+  content: '';
+  position: absolute;
+  bottom: -6px;
+  left: 10px;
+  border-width: 6px;
+  border-style: solid;
+  border-color: rgba(32, 33, 36, 0.92) transparent transparent transparent;
+}
+
 .floor-item.editing {
   cursor: grab;
 }
