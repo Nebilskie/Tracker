@@ -28,7 +28,7 @@ export class SubmitRequestModalComponent {
     { text: 'Webcam', value: 'webcam' },
     { text: 'Mouse', value: 'mouse' },
     { text: 'Keyboard', value: 'keyboard' },
-    { text: 'CPU', value: 'cpu' }
+    { text: 'Computer', value: 'computer' }
   ];
 
   constructor(private modalController: ModalController) {}

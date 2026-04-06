@@ -328,7 +328,6 @@ function resolveInventoryTableFromRequestText(requestText) {
     camera: "cameras",
     mouse: "mouse",
     keyboard: "keyboards",
-    cpu: "computers",
     computer: "computers",
   };
 
