@@ -427,6 +427,30 @@ async function reserveRequestedItem(conn, requestId, requestText) {
       const roomId = roomRows?.[0]?.room_id || null;
 
       if (roomId) {
+        const [existingRows] = await conn.query(
+          `SELECT ?? AS current_item FROM inventory WHERE room_id = ? AND label = ? LIMIT 1`,
+          [inventoryColumn, roomId, cubicleLabel]
+        );
+
+        const previousItemName = existingRows?.[0]?.current_item || null;
+
+        if (previousItemName && previousItemName !== itemName) {
+          await conn.query(
+            `UPDATE \`${targetTable}\` SET status = 'Defect', updated_at = CURRENT_TIMESTAMP WHERE name = ? AND LOWER(TRIM(status)) = 'used'`,
+            [previousItemName]
+          );
+
+          await conn.query(
+            `UPDATE \`${targetTable}\` SET status = 'Available', updated_at = CURRENT_TIMESTAMP WHERE name = ? AND LOWER(TRIM(status)) = 'inuse'`,
+            [previousItemName]
+          );
+
+          await conn.query(
+            `UPDATE requests SET previous_inventory_item_name = ? WHERE id = ?`,
+            [previousItemName, requestId]
+          );
+        }
+
         await setFloorplanInventoryValue(conn, roomId, cubicleLabel, inventoryColumn, itemName);
       }
     }
@@ -899,9 +923,9 @@ app.get("/api/inventory/summary", async (_req, res) => {
       const [rows] = await pool.query(
         `SELECT
            COUNT(*) AS total,
-           SUM(CASE WHEN LOWER(TRIM(status)) = 'defect' THEN 1 ELSE 0 END) AS defects,
-           SUM(CASE WHEN LOWER(TRIM(status)) = 'available' THEN 1 ELSE 0 END) AS available,
-           SUM(CASE WHEN LOWER(TRIM(status)) = 'used' THEN 1 ELSE 0 END) AS used
+           SUM(CASE WHEN LOWER(TRIM(status)) = 'Defect' THEN 1 ELSE 0 END) AS defects,
+           SUM(CASE WHEN LOWER(TRIM(status)) = 'Available' THEN 1 ELSE 0 END) AS available,
+           SUM(CASE WHEN LOWER(TRIM(status)) = 'Used' THEN 1 ELSE 0 END) AS used
          FROM \`${table}\``
       );
 
