@@ -666,16 +666,34 @@ app.get("/floorplans/:roomId", async (req,res)=>{
       [roomId]
     );
 
-    const cubicles = rows.map(row=>({
-      id:Number(row.id),
-      type:row.item_type||"cubicle",
-      label:row.item_type==="cubicle"?row.label:"",
-      x:Number(row.x||0),
-      y:Number(row.y||0),
-      w:Number(row.w||60),
-      h:Number(row.h||40),
-      createdOrder:Number(row.created_order||0)
-    }));
+    const [inventoryRows] = await conn.query(
+      "SELECT label, monitors, headsets, cameras, mouse, keyboards, computers FROM inventory WHERE room_id = ?",
+      [roomId]
+    );
+
+    const inventoryMap = new Map(
+      inventoryRows.map((row) => [row.label, row])
+    );
+
+    const cubicles = rows.map(row => {
+      const inventory = inventoryMap.get(row.label) || {};
+      return {
+        id: Number(row.id),
+        type: row.item_type || "cubicle",
+        label: row.item_type === "cubicle" ? row.label : "",
+        x: Number(row.x || 0),
+        y: Number(row.y || 0),
+        w: Number(row.w || 60),
+        h: Number(row.h || 40),
+        createdOrder: Number(row.created_order || 0),
+        monitors: inventory.monitors || null,
+        headsets: inventory.headsets || null,
+        cameras: inventory.cameras || null,
+        mouse: inventory.mouse || null,
+        keyboards: inventory.keyboards || null,
+        computers: inventory.computers || null,
+      };
+    });
 
     res.json({ success:true, floorplan:{ roomId, userId:rows[0]?.user_id||null, layout:{cubicles} } });
   } catch(e){

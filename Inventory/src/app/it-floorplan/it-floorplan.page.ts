@@ -348,8 +348,9 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
         if (res?.success && Array.isArray(res.inventory)) {
           this.cubicleInventory = {};
           res.inventory.forEach((row: any) => {
-            if (row?.label) {
-              this.cubicleInventory[row.label] = row;
+            const key = this.normalizeCubicleLabel(row?.label);
+            if (key) {
+              this.cubicleInventory[key] = row;
             }
           });
         } else {
@@ -363,12 +364,16 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
     });
   }
 
+  private normalizeCubicleLabel(label: string | null | undefined): string {
+    return String(label || '').trim().toLowerCase();
+  }
+
   onCubicleHover(label: string | null) {
     this.hoveredCubicleLabel = label;
   }
 
   getInventoryTooltipLines(label: string): string[] {
-    const row = this.cubicleInventory[label] || {};
+    const row = this.cubicleInventory[this.normalizeCubicleLabel(label)] || {};
 
     const monitor = row.monitors ? String(row.monitors) : '-';
     const headset = row.headsets ? String(row.headsets) : '-';

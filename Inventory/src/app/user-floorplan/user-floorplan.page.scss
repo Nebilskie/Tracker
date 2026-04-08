@@ -47,16 +47,28 @@
   border-radius: 8px;
   color: white;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   font-weight: 800;
   font-size: 12px;
   user-select: none;
-  box-shadow: 0 6px 14px rgba(0,0,0,0.12);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.12);
+  padding: 4px;
+  text-align: center;
 }
 
 .cubicle-label {
   pointer-events: none;
+}
+
+.cubicle-details {
+  pointer-events: none;
+  font-size: 10px;
+  font-weight: 600;
+  margin-top: 4px;
+  opacity: 0.9;
+  line-height: 1.2;
 }
 
 .empty-state {

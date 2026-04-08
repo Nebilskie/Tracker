@@ -34,6 +34,9 @@
       }"
     >
       <div class="cubicle-label">{{ c.label }}</div>
+      <div class="cubicle-details" *ngIf="hasCubicleInventory(c.label)">
+        {{ getCubicleInventorySummary(c.label) }}
+      </div>
     </div>
 
     <div class="empty-state" *ngIf="cubicles.length === 0">

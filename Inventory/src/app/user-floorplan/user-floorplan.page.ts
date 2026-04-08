@@ -10,6 +10,12 @@ type Cubicle = {
   h: number;
   color: string;
   locked?: boolean;
+  monitors?: string | null;
+  headsets?: string | null;
+  cameras?: string | null;
+  mouse?: string | null;
+  keyboards?: string | null;
+  computers?: string | null;
 };
 
 @Component({
@@ -21,6 +27,7 @@ type Cubicle = {
 export class UserFloorplanPage implements OnInit {
   roomId = 'main-office';
   cubicles: Cubicle[] = [];
+  cubicleInventory: Record<string, any> = {};
 
   constructor(private floorplanApi: FloorplanApiService) {}
 
@@ -40,15 +47,67 @@ export class UserFloorplanPage implements OnInit {
         if (res.success && res.floorplan && res.floorplan.layout) {
           const layout = res.floorplan.layout as FloorplanLayout;
           this.cubicles = (layout.cubicles || []) as Cubicle[];
+          this.loadFloorplanInventory(this.roomId);
         } else {
           this.cubicles = [];
+          this.cubicleInventory = {};
         }
       },
       error: (err) => {
         console.error('❌ Load user floorplan failed:', err);
         this.cubicles = [];
+        this.cubicleInventory = {};
       }
     });
+  }
+
+  private loadFloorplanInventory(roomId: string) {
+    if (!roomId) {
+      this.cubicleInventory = {};
+      return;
+    }
+
+    this.floorplanApi.getFloorplanInventory(roomId).subscribe({
+      next: (res: any) => {
+        if (res?.success && Array.isArray(res.inventory)) {
+          this.cubicleInventory = {};
+          res.inventory.forEach((row: any) => {
+            const key = this.normalizeCubicleLabel(row?.label);
+            if (key) {
+              this.cubicleInventory[key] = row;
+            }
+          });
+        } else {
+          this.cubicleInventory = {};
+        }
+      },
+      error: (err) => {
+        console.error('❌ Load floorplan inventory failed:', err);
+        this.cubicleInventory = {};
+      }
+    });
+  }
+
+  private normalizeCubicleLabel(label: string | null | undefined): string {
+    return String(label || '').trim().toLowerCase();
+  }
+
+  getCubicleInventorySummary(label: string): string {
+    const row = this.cubicleInventory[this.normalizeCubicleLabel(label)] || {};
+    const parts: string[] = [];
+
+    if (row?.monitors) parts.push(`M:${row.monitors}`);
+    if (row?.headsets) parts.push(`H:${row.headsets}`);
+    if (row?.cameras) parts.push(`C:${row.cameras}`);
+    if (row?.mouse) parts.push(`Mo:${row.mouse}`);
+    if (row?.keyboards) parts.push(`K:${row.keyboards}`);
+    if (row?.computers) parts.push(`PC:${row.computers}`);
+
+    return parts.join(' | ');
+  }
+
+  hasCubicleInventory(label: string): boolean {
+    return !!this.cubicleInventory[this.normalizeCubicleLabel(label)];
   }
 
   private async getCurrentUserId(): Promise<number | null> {
