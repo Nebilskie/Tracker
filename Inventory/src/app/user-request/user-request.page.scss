@@ -1,7 +1,7 @@
 .request-container {
   padding: 24px 28px 28px 228px;
   padding-top: 78px;
-  background-color: #f0f2f8;
+  background-color: #f4f6fb;
   width: 100%;
   min-height: 100%;
   display: flex;
@@ -9,7 +9,6 @@
   gap: 20px;
 }
 
-/* BOARD */
 .requests-board {
   display: flex;
   gap: 18px;
@@ -18,7 +17,6 @@
   overflow-x: auto;
 }
 
-/* COLUMN */
 .board-column {
   background: #fff;
   border-radius: 10px;
@@ -28,7 +26,6 @@
   transition: transform 0.2s ease;
 }
 
-/* HEADER */
 .column-header {
   display: flex;
   justify-content: space-between;
@@ -41,9 +38,6 @@
   }
 }
 
-/* =========================
-   ADD BUTTON (NEW ONLY)
-========================= */
 .add-btn {
   --background: transparent;
   --background-hover: transparent;
@@ -76,7 +70,6 @@
   transform: scale(0.95);
 }
 
-/* CARDS */
 .cards {
   display: flex;
   flex-direction: column;
@@ -88,13 +81,17 @@
   border-radius: 10px;
   padding: 12px;
   border: 1px solid rgba(0, 0, 0, 0.05);
-  cursor: default;
+  cursor: pointer;
   transition: all 0.25s ease;
 }
 
 .request-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 18px rgba(0, 0, 0, 0.12);
+  transform: translateY(-6px);
+  box-shadow: 0 12px 25px rgba(0, 0, 0, 0.12);
+}
+
+.request-card:active {
+  transform: scale(0.97);
 }
 
 .card-title {
@@ -141,4 +138,167 @@
   font-size: 13px;
   color: #aaa;
   padding: 20px 0;
+}
+
+/* Detail modal (read-only) */
+.detail-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.detail-modal.v2 {
+  background: #fff;
+  width: 92%;
+  max-width: 520px;
+  border-radius: 12px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+  padding: 18px;
+  position: relative;
+  animation: modalPop 0.2s ease;
+}
+
+.top-id {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1f5cff;
+  margin-bottom: 10px;
+}
+
+.header-row {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  align-items: center;
+  gap: 10px;
+}
+
+.user-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.avatar-circle {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: #e9ecff;
+  color: #2b3cff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+}
+
+.user-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.request-title {
+  text-align: center;
+  font-weight: 800;
+  font-size: 16px;
+  color: #111827;
+}
+
+.status-pill {
+  margin-top: 12px;
+  display: inline-block;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  background: #e8ecf9;
+  color: #334155;
+}
+
+.reason-label {
+  margin-top: 16px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.reason-box {
+  margin-top: 6px;
+  min-height: 80px;
+  border: 2px solid #79c9ff;
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 13px;
+  background: #f8fbff;
+}
+
+.time-date {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 24px;
+}
+
+.status-timestamps {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.td-col {
+  text-align: center;
+}
+
+.td-label {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 700;
+}
+
+.td-value {
+  font-size: 12px;
+  color: #334155;
+}
+
+.modal-actions {
+  margin-top: 18px;
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+}
+
+.btn-outline {
+  min-width: 120px;
+  height: 40px;
+  border-radius: 8px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-outline.primary {
+  border: 2px solid #5f6cff;
+  background: #fff;
+  color: #5f6cff;
+}
+
+.btn-outline.primary:hover {
+  background: #5f6cff;
+  color: #fff;
+  box-shadow: 0 10px 20px rgba(95, 108, 255, 0.4);
+}
+
+@keyframes modalPop {
+  from {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
