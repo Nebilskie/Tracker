@@ -4,26 +4,25 @@
     <div class="requests-board" *ngIf="currentUser">
       <div class="board-column" *ngFor="let col of columns">
 
-        <!-- COLUMN HEADER -->
         <div class="column-header">
           <div class="title">{{ col.label }}</div>
 
-          <!-- ✅ SHOW ADD BUTTON ONLY IN NEW -->
           <ion-button
             *ngIf="col.status === 'new'"
             fill="clear"
             class="add-btn"
-            (click)="addRequest()">
+            (click)="addRequest()"
+          >
             <ion-icon name="add"></ion-icon>
           </ion-button>
         </div>
 
-        <!-- CARDS -->
         <div class="cards">
           <div
             class="request-card"
-            *ngFor="let r of itemsByStatus(col.status)">
-
+            *ngFor="let r of itemsByStatus(col.status)"
+            (click)="openRequestDetail(r)"
+          >
             <div class="card-title">
               {{ r.title }}
             </div>
@@ -40,12 +39,102 @@
             </div>
           </div>
 
-          <div *ngIf="itemsByStatus(col.status).length === 0"
-               class="empty-state">
+          <div
+            *ngIf="itemsByStatus(col.status).length === 0"
+            class="empty-state"
+          >
             No requests
           </div>
         </div>
 
+      </div>
+    </div>
+  </div>
+
+  <!-- Read-only detail (no status / IT actions) -->
+  <div
+    *ngIf="showDetailModal && selectedRequest"
+    class="detail-modal-overlay"
+    (click)="closeDetailModal()"
+  >
+    <div class="detail-modal v2" (click)="$event.stopPropagation()">
+      <div class="top-id">
+        ID: {{ selectedRequest.id }}
+      </div>
+
+      <div class="header-row">
+        <div class="user-block">
+          <div class="avatar-circle">
+            {{ selectedRequest.ownerInitials }}
+          </div>
+          <div class="user-name">
+            {{ selectedRequest.username }}
+          </div>
+        </div>
+
+        <div class="request-title">
+          {{ selectedRequest.title }}
+        </div>
+      </div>
+
+      <div class="status-pill">
+        {{ formatStatusLabel(selectedRequest.status) }}
+      </div>
+
+      <div class="reason-label">Reason:</div>
+
+      <div class="reason-box">
+        {{ selectedRequest.reason || 'No reason provided' }}
+      </div>
+
+      <div class="time-date">
+        <div class="td-col">
+          <div class="td-label">Time</div>
+          <div class="td-value">{{ selectedRequest.time }}</div>
+        </div>
+
+        <div class="td-col">
+          <div class="td-label">Date</div>
+          <div class="td-value">{{ selectedRequest.date }}</div>
+        </div>
+      </div>
+
+      <div
+        class="status-timestamps"
+        *ngIf="
+          selectedRequest.inprogressAt ||
+          selectedRequest.completedAt ||
+          selectedRequest.rejectedAt
+        "
+      >
+        <div class="td-col" *ngIf="selectedRequest.inprogressAt">
+          <div class="td-label">In Progress at</div>
+          <div class="td-value">{{ selectedRequest.inprogressAt }}</div>
+        </div>
+        <div class="td-col" *ngIf="selectedRequest.completedAt">
+          <div class="td-label">Completed at</div>
+          <div class="td-value">{{ selectedRequest.completedAt }}</div>
+        </div>
+        <div class="td-col" *ngIf="selectedRequest.rejectedAt">
+          <div class="td-label">Rejected at</div>
+          <div class="td-value">{{ selectedRequest.rejectedAt }}</div>
+        </div>
+        <div class="td-col" *ngIf="selectedRequest.rejectedFrom">
+          <div class="td-label">Rejected from</div>
+          <div class="td-value">
+            {{
+              selectedRequest.rejectedFrom === 'inprogress'
+                ? 'In Progress'
+                : 'New'
+            }}
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn-outline primary" type="button" (click)="closeDetailModal()">
+          CLOSE
+        </button>
       </div>
     </div>
   </div>

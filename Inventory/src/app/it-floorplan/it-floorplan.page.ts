@@ -375,21 +375,20 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
   getInventoryTooltipLines(label: string): string[] {
     const row = this.cubicleInventory[this.normalizeCubicleLabel(label)] || {};
 
-    const monitor = row.monitors ? String(row.monitors) : '-';
-    const headset = row.headsets ? String(row.headsets) : '-';
-    const camera = row.cameras ? String(row.cameras) : '-';
-    const mouse = row.mouse ? String(row.mouse) : '-';
-    const keyboard = row.keyboards ? String(row.keyboards) : '-';
-    const computer = row.computers ? String(row.computers) : '-';
-
-    return [
-      `Monitor: ${monitor}`,
-      `Headset: ${headset}`,
-      `Camera: ${camera}`,
-      `Mouse: ${mouse}`,
-      `Keyboard: ${keyboard}`,
-      `Computer: ${computer}`,
+    const fields: Array<[string, any]> = [
+      ['Monitor', row.monitors],
+      ['Headset', row.headsets],
+      ['Camera', row.cameras],
+      ['Mouse', row.mouse],
+      ['Keyboard', row.keyboards],
+      ['Computer', row.computers],
     ];
+
+    const lines = fields
+      .filter(([, value]) => value !== null && value !== undefined && String(value).trim() !== '')
+      .map(([labelText, value]) => `${labelText}: ${value}`);
+
+    return lines.length > 0 ? lines : ['No assigned items'];
   }
 
   toggleToolbox(editBtn?: HTMLElement) {

@@ -1,21 +1,21 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
+import { firstValueFrom } from 'rxjs';
+import { Preferences } from '@capacitor/preferences';
 import { FloorplanApiService, FloorplanLayout } from '../services/floorplan-api';
 
-type Cubicle = {
+type FloorItemType = 'cubicle' | 'wall' | 'door' | 'table';
+
+type FloorItem = {
   id: number;
+  type: FloorItemType;
   label: string;
   x: number;
   y: number;
   w: number;
   h: number;
   color: string;
-  locked?: boolean;
-  monitors?: string | null;
-  headsets?: string | null;
-  cameras?: string | null;
-  mouse?: string | null;
-  keyboards?: string | null;
-  computers?: string | null;
+  locked: boolean;
+  createdOrder: number;
 };
 
 @Component({
@@ -27,7 +27,6 @@ type Cubicle = {
 export class UserFloorplanPage implements OnInit {
   roomId = 'main-office';
   cubicles: Cubicle[] = [];
-  cubicleInventory: Record<string, any> = {};
 
   constructor(private floorplanApi: FloorplanApiService) {}
 
@@ -47,43 +46,13 @@ export class UserFloorplanPage implements OnInit {
         if (res.success && res.floorplan && res.floorplan.layout) {
           const layout = res.floorplan.layout as FloorplanLayout;
           this.cubicles = (layout.cubicles || []) as Cubicle[];
-          this.loadFloorplanInventory(this.roomId);
         } else {
           this.cubicles = [];
-          this.cubicleInventory = {};
         }
       },
       error: (err) => {
         console.error('❌ Load user floorplan failed:', err);
         this.cubicles = [];
-        this.cubicleInventory = {};
-      }
-    });
-  }
-
-  private loadFloorplanInventory(roomId: string) {
-    if (!roomId) {
-      this.cubicleInventory = {};
-      return;
-    }
-
-    this.floorplanApi.getFloorplanInventory(roomId).subscribe({
-      next: (res: any) => {
-        if (res?.success && Array.isArray(res.inventory)) {
-          this.cubicleInventory = {};
-          res.inventory.forEach((row: any) => {
-            const key = this.normalizeCubicleLabel(row?.label);
-            if (key) {
-              this.cubicleInventory[key] = row;
-            }
-          });
-        } else {
-          this.cubicleInventory = {};
-        }
-      },
-      error: (err) => {
-        console.error('❌ Load floorplan inventory failed:', err);
-        this.cubicleInventory = {};
       }
     });
   }
@@ -110,57 +79,76 @@ export class UserFloorplanPage implements OnInit {
     return !!this.cubicleInventory[this.normalizeCubicleLabel(label)];
   }
 
-  private async getCurrentUserId(): Promise<number | null> {
-    const raw = localStorage.getItem('user');
-    if (!raw) return null;
-
-    try {
-      const parsed = JSON.parse(raw);
-      if (parsed?.id !== undefined && parsed?.id !== null) {
-        return Number(parsed.id);
-      }
-    } catch {
-      // ignore
+  private loadFloorplanInventory(room: string) {
+    if (!room) {
+      this.cubicleInventory = {};
+      return;
     }
 
-    return null;
+    if (this.inventoryRefreshInterval) {
+      clearInterval(this.inventoryRefreshInterval);
+      this.inventoryRefreshInterval = null;
+    }
+
+    this.refreshInventoryFromServer(room);
+
+    this.inventoryRefreshInterval = setInterval(() => {
+      this.refreshInventoryFromServer(room);
+    }, this.INVENTORY_REFRESH_INTERVAL);
   }
 
-  private async getCurrentUserRole(): Promise<string | null> {
-    const raw = localStorage.getItem('user');
-    if (!raw) return null;
-
-    try {
-      const parsed = JSON.parse(raw);
-      if (parsed?.role) {
-        return String(parsed.role).toUpperCase();
-      }
-    } catch {
-      // ignore
-    }
-
-    return null;
+  private refreshInventoryFromServer(room: string) {
+    this.floorplanApi.getFloorplanInventory(room).subscribe({
+      next: (res: any) => {
+        if (res?.success && Array.isArray(res.inventory)) {
+          this.cubicleInventory = {};
+          res.inventory.forEach((row: any) => {
+            if (row?.label) {
+              this.cubicleInventory[row.label] = row;
+            }
+          });
+        } else {
+          this.cubicleInventory = {};
+        }
+      },
+      error: (err: any) => {
+        console.error('Load cubicle inventory failed:', err);
+        this.cubicleInventory = {};
+      },
+    });
   }
 
-  private async getItUserId(): Promise<number | null> {
-    // First check if the app already stored a designated IT user ID.
-    const stored = localStorage.getItem('itUserId');
-    if (stored) {
-      const n = Number(stored);
-      if (!Number.isNaN(n)) return n;
+  private getDefaultColor(type: FloorItemType): string {
+    switch (type) {
+      case 'wall':
+        return '#5f6368';
+      case 'door':
+        return '#c49a6c';
+      case 'table':
+        return '#8d6e63';
+      case 'cubicle':
+      default:
+        return '#4caf50';
     }
+  }
 
-    // If the currently logged-in user is IT, use their ID and remember it.
-    const role = await this.getCurrentUserRole();
-    const currentUserId = await this.getCurrentUserId();
-    if (role === 'IT' && currentUserId != null) {
-      localStorage.setItem('itUserId', String(currentUserId));
-      return currentUserId;
-    }
+  private renumberCubicles() {
+    const sorted = [...this.floorItems].sort((a, b) => {
+      const aOrder = Number(a.createdOrder || 0);
+      const bOrder = Number(b.createdOrder || 0);
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      return Number(a.id) - Number(b.id);
+    });
 
-    // Default IT user id when viewing as non-IT user.
-    return 1;
+    let cubicleNumber = 1;
+    sorted.forEach((item) => {
+      if (item.type === 'cubicle') {
+        item.label = `C${cubicleNumber++}`;
+      } else {
+        item.label = '';
+      }
+    });
+
+    this.floorItems = sorted;
   }
 }
-
-
