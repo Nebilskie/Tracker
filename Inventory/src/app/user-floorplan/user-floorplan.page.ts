@@ -1,6 +1,4 @@
-import { Component, OnDestroy, OnInit } from '@angular/core';
-import { firstValueFrom } from 'rxjs';
-import { Preferences } from '@capacitor/preferences';
+import { Component, OnInit } from '@angular/core';
 import { FloorplanApiService, FloorplanLayout } from '../services/floorplan-api';
 
 type FloorItemType = 'cubicle' | 'wall' | 'door' | 'table';
@@ -18,6 +16,15 @@ type FloorItem = {
   createdOrder: number;
 };
 
+type Cubicle = FloorItem & {
+  monitors?: string | null;
+  headsets?: string | null;
+  cameras?: string | null;
+  mouse?: string | null;
+  keyboards?: string | null;
+  computers?: string | null;
+};
+
 @Component({
   selector: 'app-user-floorplan',
   templateUrl: './user-floorplan.page.html',
@@ -26,33 +33,56 @@ type FloorItem = {
 })
 export class UserFloorplanPage implements OnInit {
   roomId = 'main-office';
+  rooms: string[] = [];
+  loading = true;
+  floorItems: FloorItem[] = [];
   cubicles: Cubicle[] = [];
+  cubicleInventory: Record<string, any> = {};
+  hoveredCubicleLabel: string | null = null;
+  inventoryRefreshInterval: any = null;
+  readonly INVENTORY_REFRESH_INTERVAL = 5000;
 
   constructor(private floorplanApi: FloorplanApiService) {}
 
-  ngOnInit() {
-    this.loadFloorplanFromIt();
+  async ngOnInit() {
+    await this.loadRooms();
+    await this.loadFloorplanFromIt();
   }
 
   private async loadFloorplanFromIt() {
+    this.loading = true;
     const itUserId = await this.getItUserId();
     if (!itUserId) {
       this.cubicles = [];
+      this.floorItems = [];
+      this.cubicleInventory = {};
+      this.loading = false;
       return;
     }
 
     this.floorplanApi.loadFloorplan(this.roomId).subscribe({
       next: (res: any) => {
         if (res.success && res.floorplan && res.floorplan.layout) {
-          const layout = res.floorplan.layout as FloorplanLayout;
-          this.cubicles = (layout.cubicles || []) as Cubicle[];
+          const items = (res.floorplan.layout.cubicles || []) as Cubicle[];
+          this.cubicles = items;
+          this.floorItems = items.map((item) => ({
+            ...item,
+            color: item.color || this.getDefaultColor(item.type),
+          }));
+          this.loadFloorplanInventory(this.roomId);
         } else {
           this.cubicles = [];
+          this.floorItems = [];
+          this.cubicleInventory = {};
         }
+        this.loading = false;
       },
       error: (err) => {
         console.error('❌ Load user floorplan failed:', err);
         this.cubicles = [];
+        this.floorItems = [];
+        this.cubicleInventory = {};
+        this.loading = false;
       }
     });
   }
@@ -104,7 +134,7 @@ export class UserFloorplanPage implements OnInit {
           this.cubicleInventory = {};
           res.inventory.forEach((row: any) => {
             if (row?.label) {
-              this.cubicleInventory[row.label] = row;
+              this.cubicleInventory[this.normalizeCubicleLabel(row.label)] = row;
             }
           });
         } else {
@@ -132,6 +162,58 @@ export class UserFloorplanPage implements OnInit {
     }
   }
 
+  onCubicleHover(label: string | null) {
+    this.hoveredCubicleLabel = label;
+  }
+
+  getInventoryTooltipLines(label: string): string[] {
+    const row = this.cubicleInventory[this.normalizeCubicleLabel(label)] || {};
+
+    const monitor = row.monitors ? String(row.monitors) : '-';
+    const headset = row.headsets ? String(row.headsets) : '-';
+    const camera = row.cameras ? String(row.cameras) : '-';
+    const mouse = row.mouse ? String(row.mouse) : '-';
+    const keyboard = row.keyboards ? String(row.keyboards) : '-';
+    const computer = row.computers ? String(row.computers) : '-';
+
+    return [
+      `Monitor: ${monitor}`,
+      `Headset: ${headset}`,
+      `Camera: ${camera}`,
+      `Mouse: ${mouse}`,
+      `Keyboard: ${keyboard}`,
+      `Computer: ${computer}`,
+    ];
+  }
+
+  switchRoom(room: string) {
+    if (this.roomId === room) return;
+    this.roomId = room;
+    this.loadFloorplanFromIt();
+  }
+
+  private async loadRooms() {
+    this.roomId = this.roomId || 'main-office';
+    this.floorplanApi.listRooms().subscribe({
+      next: (res: any) => {
+        if (res?.success && Array.isArray(res.rooms)) {
+          this.rooms = res.rooms
+            .map((row: any) => String(row.room_name || '').trim())
+            .filter((name: string) => !!name);
+          if (this.rooms.length && !this.rooms.includes(this.roomId)) {
+            this.roomId = this.rooms[0];
+          }
+        } else {
+          this.rooms = [];
+        }
+      },
+      error: (err) => {
+        console.error('❌ Load rooms failed:', err);
+        this.rooms = [];
+      }
+    });
+  }
+
   private renumberCubicles() {
     const sorted = [...this.floorItems].sort((a, b) => {
       const aOrder = Number(a.createdOrder || 0);
@@ -150,5 +232,54 @@ export class UserFloorplanPage implements OnInit {
     });
 
     this.floorItems = sorted;
+  }
+
+  private async getCurrentUserId(): Promise<number | null> {
+    const raw = localStorage.getItem('user');
+    if (!raw) return null;
+
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed?.id !== undefined && parsed?.id !== null) {
+        return Number(parsed.id);
+      }
+    } catch {
+      // ignore
+    }
+
+    return null;
+  }
+
+  private async getCurrentUserRole(): Promise<string | null> {
+    const raw = localStorage.getItem('user');
+    if (!raw) return null;
+
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed?.role) {
+        return String(parsed.role).toUpperCase();
+      }
+    } catch {
+      // ignore
+    }
+
+    return null;
+  }
+
+  private async getItUserId(): Promise<number | null> {
+    const stored = localStorage.getItem('itUserId');
+    if (stored) {
+      const parsed = Number(stored);
+      if (!Number.isNaN(parsed)) return parsed;
+    }
+
+    const role = await this.getCurrentUserRole();
+    const currentUserId = await this.getCurrentUserId();
+    if (role === 'IT' && currentUserId != null) {
+      localStorage.setItem('itUserId', String(currentUserId));
+      return currentUserId;
+    }
+
+    return 1;
   }
 }
