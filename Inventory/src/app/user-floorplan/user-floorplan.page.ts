@@ -45,8 +45,7 @@ export class UserFloorplanPage implements OnInit {
   constructor(private floorplanApi: FloorplanApiService) {}
 
   async ngOnInit() {
-    await this.loadRooms();
-    await this.loadFloorplanFromIt();
+    this.loadRooms();
   }
 
   private async loadFloorplanFromIt() {
@@ -206,10 +205,12 @@ export class UserFloorplanPage implements OnInit {
         } else {
           this.rooms = [];
         }
+        this.loadFloorplanFromIt();
       },
       error: (err) => {
         console.error('❌ Load rooms failed:', err);
         this.rooms = [];
+        this.loadFloorplanFromIt();
       }
     });
   }
