@@ -1,44 +1,78 @@
 <ion-content>
   <div class="list-container">
-
-    <!-- LEGEND -->
+    <!-- LEGEND (matches IT: structure / element types) -->
     <div class="legend">
       <div class="legend-item">
-        <div class="legend-color" style="background:#9e9e9e;"></div>
-        <span>No Unit</span>
+        <div class="legend-color wall-sample"></div>
+        <span>Wall</span>
       </div>
       <div class="legend-item">
-        <div class="legend-color" style="background:#4caf50;"></div>
-        <span>Single Unit</span>
+        <div class="legend-color door-sample"></div>
+        <span>Door</span>
       </div>
       <div class="legend-item">
-        <div class="legend-color" style="background:#ff5722;"></div>
-        <span>Dual Monitor</span>
+        <div class="legend-color table-sample"></div>
+        <span>Table</span>
       </div>
       <div class="legend-item">
-        <div class="legend-color" style="background:#f44336;"></div>
-        <span>No User</span>
+        <div class="legend-color cubicle-sample"></div>
+        <span>Cubicle</span>
       </div>
     </div>
 
-    <!-- CUBICLES -->
+    <!-- ITEMS (read-only, same visuals as IT) -->
     <div
-      class="cubicle"
-      *ngFor="let c of cubicles"
+      class="floor-item"
+      *ngFor="let item of floorItems"
+      [class.item-wall]="item.type === 'wall'"
+      [class.item-door]="item.type === 'door'"
+      [class.item-table]="item.type === 'table'"
+      [class.item-cubicle]="item.type === 'cubicle'"
       [ngStyle]="{
-        left: c.x + 'px',
-        top: c.y + 'px',
-        width: c.w + 'px',
-        height: c.h + 'px',
-        background: c.color
+        left: item.x + 'px',
+        top: item.y + 'px',
+        width: item.w + 'px',
+        height: item.h + 'px',
+        background: item.color
       }"
+      (mouseenter)="onCubicleHover(item.type === 'cubicle' ? item.label : null)"
+      (mouseleave)="onCubicleHover(null)"
     >
-      <div class="cubicle-label">{{ c.label }}</div>
+      <div class="floor-item-label" *ngIf="item.type === 'cubicle'">
+        {{ item.label }}
+      </div>
+
+      <div
+        class="cubicle-tooltip"
+        *ngIf="item.type === 'cubicle' && hoveredCubicleLabel === item.label"
+      >
+        <div *ngFor="let line of getInventoryTooltipLines(item.label)">
+          {{ line }}
+        </div>
+      </div>
     </div>
 
-    <div class="empty-state" *ngIf="cubicles.length === 0">
+    <div class="empty-state" *ngIf="!loading && rooms.length === 0">
       No floorplan has been published yet.
     </div>
 
+    <div class="empty-state" *ngIf="!loading && rooms.length > 0 && floorItems.length === 0">
+      This room has no layout yet.
+    </div>
+
+    <!-- Room switcher only (no New Room) -->
+    <div class="room-tabs-bar" *ngIf="rooms.length > 0">
+      <div class="room-tabs-scroll">
+        <button
+          type="button"
+          class="room-tab"
+          *ngFor="let room of rooms"
+          [class.active]="room === roomId"
+          (click)="switchRoom(room)"
+        >
+          {{ room }}
+        </button>
+      </div>
+    </div>
   </div>
 </ion-content>
