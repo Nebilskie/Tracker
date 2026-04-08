@@ -363,18 +363,21 @@ async function setFloorplanInventoryValue(conn, roomId, label, column, value) {
   const validColumns = ["monitors", "headsets", "cameras", "mouse", "keyboards", "computers"];
   if (!validColumns.includes(column)) return;
 
-  // Update existing inventory row for the cubicle
   const [result] = await conn.query(
     `UPDATE inventory SET ${column} = ? WHERE room_id = ? AND label = ?`,
     [value, roomId, label]
   );
 
-  // If no row exists yet, insert one so the cubicle gets updated
   if (result.affectedRows === 0) {
     await conn.query(
       `INSERT INTO inventory (user_id, room_id, label, ${column}) VALUES (?, ?, ?, ?)`,
       [null, roomId, label, value]
     );
+  }
+
+  // 🔥 NEW: update location in actual table
+  if (value) {
+    await updateItemLocation(conn, column, value);
   }
 }
 
@@ -493,7 +496,9 @@ async function releaseReservedItem(conn, requestId, requestText) {
         const roomId = roomRows?.[0]?.room_id || null;
 
         if (roomId) {
-          await setFloorplanInventoryValue(conn, roomId, cubicleLabel, inventoryColumn, null);
+          
+        await setFloorplanInventoryValue(conn, roomId, cubicleLabel, inventoryColumn, null);
+        await updateItemLocation(conn, targetTable, null);
         }
       }
     }
@@ -539,11 +544,40 @@ async function markRequestedItemUsed(conn, requestId, requestText) {
 
       if (roomId) {
         await setFloorplanInventoryValue(conn, roomId, cubicleLabel, inventoryColumn, itemName);
+        await updateItemLocation(conn, targetTable, itemName);
       }
     }
   } catch (err) {
     console.error(`❌ Error marking item used for request ${requestId}:`, err);
   }
+}
+
+async function updateItemLocation(conn, table, itemName) {
+  if (!table || !itemName) return;
+
+  // Find cubicle + room from inventory table
+  const [rows] = await conn.query(
+    `SELECT i.label, fr.room_name, i.room_id
+     FROM inventory i
+     LEFT JOIN floorplan_rooms fr ON i.room_id = fr.id
+     WHERE LOWER(${table}) = LOWER(?) 
+     LIMIT 1`,
+    [itemName]
+  );
+
+  let location = null;
+
+  if (rows.length) {
+    location = `${rows[0].label} Room ${rows[0].room_name || rows[0].room_id}`;
+  }
+
+  // Update location in actual inventory table
+  await conn.query(
+    `UPDATE \`${table}\` 
+     SET location = ?, updated_at = CURRENT_TIMESTAMP 
+     WHERE name = ?`,
+    [location, itemName]
+  );
 }
 
 /* =========================
@@ -971,7 +1005,38 @@ app.get("/api/inventory/:type", async (req, res) => {
 
   try {
     const [rows] = await pool.query(`SELECT * FROM \`${type}\` ORDER BY name ASC`);
-    res.json({ success: true, items: rows });
+
+    const items = await Promise.all(rows.map(async (item) => {
+      const status = String(item.status || '').trim().toLowerCase();
+      let location = null;
+
+      if (status === 'available' || status === 'defect') {
+        location = 'storage';
+      } else {
+        const [inv] = await pool.query(
+          `SELECT i.label, fr.room_name, i.room_id
+           FROM inventory i
+           LEFT JOIN floorplan_rooms fr ON i.room_id = fr.id
+           WHERE LOWER(i.\`${type}\`) = LOWER(?) LIMIT 1`,
+          [item.name]
+        );
+
+        if (inv.length) {
+          location = `${inv[0].label} Room ${inv[0].room_name || inv[0].room_id}`;
+        }
+      }
+
+      if (location !== item.location) {
+        await pool.query(
+          `UPDATE \`${type}\` SET location = ? WHERE id = ?`,
+          [location, item.id]
+        );
+      }
+
+      return { ...item, location };
+    }));
+
+    res.json({ success: true, items });
   } catch (e) {
     console.error("❌ Inventory fetch error:", e);
     res.status(500).json({ success: false });
