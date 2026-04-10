@@ -13,15 +13,15 @@ export class FloorplanApiService {
   constructor(private http: HttpClient) {}
 
   saveFloorplan(roomId: string, userId: number, layout: FloorplanLayout): Observable<any> {
-    return this.http.post(`${this.baseUrl}/floorplans/${roomId}`, { userId, layout });
+    return this.http.post(`${this.baseUrl}/cubicles/${roomId}`, { userId, layout });
   }
 
   loadFloorplan(roomId: string): Observable<any> {
-    return this.http.get(`${this.baseUrl}/floorplans/${roomId}`);
+    return this.http.get(`${this.baseUrl}/cubicles/${roomId}`);
   }
 
   listFloorplans(): Observable<any> {
-    return this.http.get(`${this.baseUrl}/floorplans`);
+    return this.http.get(`${this.baseUrl}/cubicles/list`);
   }
 
   listRooms(userId?: number): Observable<any> {

@@ -28,15 +28,25 @@ app.use((req, res, next) => {
   next();
 });
 
-const statusTableMap = {
-  new: "`new`",
-  inprogress: "`inprogress`",
-  completed: "`completed`",
-  rejected: "`rejected`",
-};
-
-const validStatuses = Object.keys(statusTableMap);
+const validStatuses = ["N", "I", "R", "C"];
 const ROOM_PLACEHOLDER_LABEL = "__ROOM__";
+
+function normalizeRequestStatus(input) {
+  if (input == null) return null;
+  const raw = String(input).trim();
+  if (!raw) return null;
+
+  const upper = raw.toUpperCase();
+  if (validStatuses.includes(upper)) return upper;
+
+  const compact = raw.toLowerCase().replace(/[\s_-]+/g, "");
+  if (compact === "new") return "N";
+  if (compact === "inprogress") return "I";
+  if (compact === "rejected") return "R";
+  if (compact === "completed") return "C";
+
+  return null;
+}
 
 /* =========================
    INIT TABLES
@@ -46,22 +56,13 @@ async function initializeTables() {
 
   try {
     await conn.query(`
-      CREATE TABLE IF NOT EXISTS statuses (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        status_name VARCHAR(50) UNIQUE NOT NULL,
-        display_label VARCHAR(100) NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await conn.query(`
       CREATE TABLE IF NOT EXISTS requests (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT,
         username VARCHAR(255) NOT NULL,
         request_text LONGTEXT NOT NULL,
         reason LONGTEXT,
-        status VARCHAR(50) NOT NULL DEFAULT 'new',
+        status VARCHAR(1) NOT NULL DEFAULT 'N' COMMENT '''N''-New, ''I''-In-Progress, ''R''-Rejected, ''C''-Completed',
         inventory_table VARCHAR(100) NULL DEFAULT NULL,
         inventory_item_id INT NULL DEFAULT NULL,
         inventory_item_name VARCHAR(255) NULL DEFAULT NULL,
@@ -71,10 +72,80 @@ async function initializeTables() {
         inprogress_at DATETIME NULL DEFAULT NULL,
         completed_at DATETIME NULL DEFAULT NULL,
         rejected_at DATETIME NULL DEFAULT NULL,
-        rejected_from ENUM('new','inprogress') NULL DEFAULT NULL,
-        FOREIGN KEY (status) REFERENCES statuses(status_name)
+        rejected_from ENUM('N','I') NULL DEFAULT NULL
       )
     `);
+
+    // ---- migrate legacy status schema/data (older builds used a statuses FK + string values) ----
+    try {
+      const [dbRows] = await conn.query("SELECT DATABASE() AS db");
+      const dbName = dbRows?.[0]?.db;
+
+      if (dbName) {
+        const [fkRows] = await conn.query(
+          `
+          SELECT DISTINCT kcu.CONSTRAINT_NAME AS constraintName
+          FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+          WHERE kcu.TABLE_SCHEMA = ?
+            AND kcu.TABLE_NAME = 'requests'
+            AND kcu.COLUMN_NAME = 'status'
+            AND kcu.REFERENCED_TABLE_NAME IS NOT NULL
+          `,
+          [dbName]
+        );
+
+        for (const r of fkRows) {
+          const name = r?.constraintName;
+          if (!name) continue;
+          try {
+            await conn.query(`ALTER TABLE requests DROP FOREIGN KEY \`${name}\``);
+          } catch (_e) {
+            // best-effort: constraint may already be gone / different permissions
+          }
+        }
+      }
+
+      // Convert old string statuses to the new 1-char codes.
+      await conn.query(`
+        UPDATE requests
+        SET status = CASE
+          WHEN status = 'new' THEN 'N'
+          WHEN status = 'inprogress' THEN 'I'
+          WHEN status = 'rejected' THEN 'R'
+          WHEN status = 'completed' THEN 'C'
+          ELSE status
+        END
+        WHERE status IN ('new','inprogress','rejected','completed')
+      `);
+
+      // Convert rejected_from legacy values.
+      await conn.query(`
+        UPDATE requests
+        SET rejected_from = CASE
+          WHEN rejected_from = 'new' THEN 'N'
+          WHEN rejected_from = 'inprogress' THEN 'I'
+          ELSE rejected_from
+        END
+        WHERE rejected_from IN ('new','inprogress')
+      `);
+
+      // Ensure the columns use the new enums (CREATE TABLE IF NOT EXISTS won't update existing schemas).
+      await conn.query(
+        `ALTER TABLE requests MODIFY status VARCHAR(1) NOT NULL DEFAULT 'N' COMMENT '''N''-New, ''I''-In-Progress, ''R''-Rejected, ''C''-Completed'`
+      );
+      await conn.query(`ALTER TABLE requests MODIFY rejected_from ENUM('N','I') NULL DEFAULT NULL`);
+
+      // Best-effort: add a check constraint for valid status codes (ignored if unsupported).
+      try {
+        await conn.query(
+          "ALTER TABLE requests ADD CONSTRAINT requests_status_chk CHECK (status IN ('N','I','R','C'))"
+        );
+      } catch (_e) {
+        // ignore (older MySQL, constraint already exists, etc.)
+      }
+    } catch (e) {
+      console.warn("⚠️ requests status migration skipped:", e?.message || e);
+    }
 
     const [columnsInventoryTable] = await conn.query(
       "SHOW COLUMNS FROM requests LIKE 'inventory_table'"
@@ -112,39 +183,19 @@ async function initializeTables() {
       );
     }
 
-    const makeStatusTable = (name) => `
-      CREATE TABLE IF NOT EXISTS \`${name}\` (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        request_id INT UNIQUE,
-        user_id INT,
-        username VARCHAR(255),
-        request_text LONGTEXT,
-        reason LONGTEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `;
-
-    await conn.query(makeStatusTable("new"));
-    await conn.query(makeStatusTable("inprogress"));
-    await conn.query(makeStatusTable("completed"));
-    await conn.query(makeStatusTable("rejected"));
-
-    const statuses = [
-      ["new", "New"],
-      ["inprogress", "In Progress"],
-      ["completed", "Completed"],
-      ["rejected", "Rejected"],
-    ];
-
-    for (const [statusName, label] of statuses) {
-      await conn.query(
-        "INSERT IGNORE INTO statuses (status_name, display_label) VALUES (?, ?)",
-        [statusName, label]
-      );
-    }
+     // ---- migrate legacy table name floorplan_rooms -> mst_room ----
+     try {
+       const [oldRooms] = await conn.query("SHOW TABLES LIKE 'floorplan_rooms'");
+       const [newRooms] = await conn.query("SHOW TABLES LIKE 'mst_room'");
+       if (oldRooms.length && !newRooms.length) {
+         await conn.query("RENAME TABLE floorplan_rooms TO mst_room");
+       }
+     } catch (e) {
+       console.warn("⚠️ mst_room table rename skipped:", e?.message || e);
+     }
 
      await conn.query(`
-      CREATE TABLE IF NOT EXISTS floorplan_rooms (
+      CREATE TABLE IF NOT EXISTS mst_room (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id VARCHAR(100),
         room_name VARCHAR(100) NOT NULL,
@@ -154,8 +205,25 @@ async function initializeTables() {
       )
     `);
 
+    // ---- migrate legacy table name floorplans/cubicles -> mst_cubicles ----
+    try {
+      const [floorplanTables] = await conn.query("SHOW TABLES LIKE 'floorplans'");
+      const [cubiclesTables] = await conn.query("SHOW TABLES LIKE 'cubicles'");
+      const [mstCubiclesTables] = await conn.query("SHOW TABLES LIKE 'mst_cubicles'");
+
+      if (!mstCubiclesTables.length) {
+        if (cubiclesTables.length) {
+          await conn.query("RENAME TABLE cubicles TO mst_cubicles");
+        } else if (floorplanTables.length) {
+          await conn.query("RENAME TABLE floorplans TO mst_cubicles");
+        }
+      }
+    } catch (e) {
+      console.warn("⚠️ cubicles table rename skipped:", e?.message || e);
+    }
+
     await conn.query(`
-      CREATE TABLE IF NOT EXISTS floorplans (
+      CREATE TABLE IF NOT EXISTS mst_cubicles (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id VARCHAR(100),
         label VARCHAR(100),
@@ -170,27 +238,27 @@ async function initializeTables() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         UNIQUE KEY uniq_user_room_label (user_id, room_id, label),
-        FOREIGN KEY (room_id) REFERENCES floorplan_rooms(id) ON DELETE CASCADE
+        FOREIGN KEY (room_id) REFERENCES mst_room(id) ON DELETE CASCADE
       )
     `);
 
-    // Clean up legacy room placeholder entries in the floorplans table.
+    // Clean up legacy room placeholder entries in the mst_cubicles table.
 
     const [createdOrderCol] = await conn.query(
-      "SHOW COLUMNS FROM floorplans LIKE 'created_order'"
+      "SHOW COLUMNS FROM mst_cubicles LIKE 'created_order'"
     );
     if (!createdOrderCol.length) {
       await conn.query(
-        "ALTER TABLE floorplans ADD COLUMN created_order INT DEFAULT 0 AFTER h"
+        "ALTER TABLE mst_cubicles ADD COLUMN created_order INT DEFAULT 0 AFTER h"
       );
     }
 
     const [itemTypeCol] = await conn.query(
-      "SHOW COLUMNS FROM floorplans LIKE 'item_type'"
+      "SHOW COLUMNS FROM mst_cubicles LIKE 'item_type'"
     );
     if (!itemTypeCol.length) {
       await conn.query(
-        "ALTER TABLE floorplans ADD COLUMN item_type VARCHAR(50) DEFAULT 'cubicle' AFTER label"
+        "ALTER TABLE mst_cubicles ADD COLUMN item_type VARCHAR(50) DEFAULT 'cubicle' AFTER label"
       );
     }
 
@@ -227,7 +295,7 @@ async function initializeTables() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         UNIQUE KEY uniq_user_room_label (user_id, room_id, label),
-        FOREIGN KEY (room_id) REFERENCES floorplan_rooms(id) ON DELETE CASCADE
+        FOREIGN KEY (room_id) REFERENCES mst_room(id) ON DELETE CASCADE
       )
     `);
 
@@ -288,35 +356,6 @@ async function upsertFloorplanInventory(conn, userId, roomId, floorItems) {
       [userId, roomId, item.label, null, null, null, null, null, null]
     );
   }
-}
-
-async function syncStatusTablesForRequest(conn, requestId) {
-  const [rows] = await conn.query("SELECT * FROM requests WHERE id = ?", [requestId]);
-  if (!rows.length) return;
-
-  const reqRow = rows[0];
-
-  await conn.query("DELETE FROM `new` WHERE request_id = ?", [requestId]);
-  await conn.query("DELETE FROM `inprogress` WHERE request_id = ?", [requestId]);
-  await conn.query("DELETE FROM `completed` WHERE request_id = ?", [requestId]);
-  await conn.query("DELETE FROM `rejected` WHERE request_id = ?", [requestId]);
-
-  const targetTable = statusTableMap[reqRow.status];
-
-  await conn.query(
-    `
-    INSERT INTO ${targetTable}
-    (request_id,user_id,username,request_text,reason)
-    VALUES (?,?,?,?,?)
-    `,
-    [
-      reqRow.id,
-      reqRow.user_id,
-      reqRow.username,
-      reqRow.request_text,
-      reqRow.reason,
-    ]
-  );
 }
 
 function resolveInventoryTableFromRequestText(requestText) {
@@ -423,7 +462,7 @@ async function reserveRequestedItem(conn, requestId, requestText) {
 
     if (cubicleLabel && inventoryColumn && userId) {
       const [roomRows] = await conn.query(
-        "SELECT room_id FROM floorplans WHERE label = ? LIMIT 1",
+        "SELECT room_id FROM mst_cubicles WHERE label = ? LIMIT 1",
         [cubicleLabel]
       );
       const roomId = roomRows?.[0]?.room_id || null;
@@ -490,7 +529,7 @@ async function releaseReservedItem(conn, requestId, requestText) {
 
       if (cubicleLabel && inventoryColumn && userId) {
         const [roomRows] = await conn.query(
-          "SELECT room_id FROM floorplans WHERE label = ? LIMIT 1",
+          "SELECT room_id FROM mst_cubicles WHERE label = ? LIMIT 1",
           [cubicleLabel]
         );
         const roomId = roomRows?.[0]?.room_id || null;
@@ -537,7 +576,7 @@ async function markRequestedItemUsed(conn, requestId, requestText) {
 
     if (cubicleLabel && inventoryColumn && userId) {
       const [roomRows] = await conn.query(
-        "SELECT room_id FROM floorplans WHERE label = ? LIMIT 1",
+        "SELECT room_id FROM mst_cubicles WHERE label = ? LIMIT 1",
         [cubicleLabel]
       );
       const roomId = roomRows?.[0]?.room_id || null;
@@ -559,7 +598,7 @@ async function updateItemLocation(conn, table, itemName) {
   const [rows] = await conn.query(
     `SELECT i.label, fr.room_name, i.room_id
      FROM inventory i
-     LEFT JOIN floorplan_rooms fr ON i.room_id = fr.id
+     LEFT JOIN mst_room fr ON i.room_id = fr.id
      WHERE LOWER(${table}) = LOWER(?) 
      LIMIT 1`,
     [itemName]
@@ -611,11 +650,10 @@ app.post("/api/it-requests", async (req, res) => {
     await conn.beginTransaction();
 
     const [result] = await conn.query(
-      "INSERT INTO requests (user_id,username,request_text,reason,status) VALUES (?,?,?,?, 'new')",
+      "INSERT INTO requests (user_id,username,request_text,reason,status) VALUES (?,?,?,?, 'N')",
       [userId, username, requestText, reason]
     );
 
-    await syncStatusTablesForRequest(conn, result.insertId);
     await conn.commit();
 
     res.json({ success: true });
@@ -646,7 +684,7 @@ app.post("/rooms", async (req,res)=>{
 
   try {
     const [existing] = await conn.query(
-      "SELECT id FROM floorplan_rooms WHERE user_id=? AND room_name=? LIMIT 1",
+      "SELECT id FROM mst_room WHERE user_id=? AND room_name=? LIMIT 1",
       [userId, roomId]
     );
 
@@ -656,7 +694,7 @@ app.post("/rooms", async (req,res)=>{
       roomRecordId = existing[0].id;
     } else {
       const [result] = await conn.query(
-        "INSERT INTO floorplan_rooms (user_id, room_name) VALUES (?,?)",
+        "INSERT INTO mst_room (user_id, room_name) VALUES (?,?)",
         [userId, roomId]
       );
       roomRecordId = result.insertId;
@@ -664,7 +702,7 @@ app.post("/rooms", async (req,res)=>{
 
     // 🔥 CLEAN ANY BAD ROOM DATA IN FLOORPLANS
     await conn.query(
-      "DELETE FROM floorplans WHERE room_id = ? AND (item_type = 'room' OR label = '__ROOM__')",
+      "DELETE FROM mst_cubicles WHERE room_id = ? AND (item_type = 'room' OR label = '__ROOM__')",
       [roomRecordId]
     );
 
@@ -678,7 +716,7 @@ app.post("/rooms", async (req,res)=>{
   }
 });
 
-app.get("/floorplans/:roomId", async (req,res)=>{
+async function handleGetCubicles(req,res){
   const roomIdParam = req.params.roomId;
   const conn = await pool.getConnection();
 
@@ -687,7 +725,7 @@ app.get("/floorplans/:roomId", async (req,res)=>{
     if (/^\d+$/.test(roomIdParam)) roomId = parseInt(roomIdParam,10);
     else {
       const [roomRecord] = await conn.query(
-        "SELECT id FROM floorplan_rooms WHERE LOWER(TRIM(room_name)) = LOWER(TRIM(?)) LIMIT 1",
+        "SELECT id FROM mst_room WHERE LOWER(TRIM(room_name)) = LOWER(TRIM(?)) LIMIT 1",
         [roomIdParam]
       );
       if(!roomRecord.length) return res.json({success:true,floorplan:null});
@@ -695,7 +733,7 @@ app.get("/floorplans/:roomId", async (req,res)=>{
     }
 
     const [rows] = await conn.query(
-      "SELECT * FROM floorplans WHERE room_id = ? AND item_type != 'room' AND (label IS NULL OR label != '__ROOM__') ORDER BY created_order ASC, id ASC",
+      "SELECT * FROM mst_cubicles WHERE room_id = ? AND item_type != 'room' AND (label IS NULL OR label != '__ROOM__') ORDER BY created_order ASC, id ASC",
       [roomId]
     );
 
@@ -733,9 +771,13 @@ app.get("/floorplans/:roomId", async (req,res)=>{
     console.error(e);
     res.status(500).json({ success:false, error:"Server error loading floorplan" });
   } finally { conn.release(); }
-});
+}
 
-app.post("/floorplans/:roomId", async (req, res) => {
+app.get("/cubicles/:roomId", handleGetCubicles);
+// Back-compat alias
+app.get("/floorplans/:roomId", handleGetCubicles);
+
+async function handleSaveCubicles(req, res) {
   const roomIdParam = req.params.roomId;
   const { userId, layout, cubicles } = req.body;
 
@@ -760,13 +802,13 @@ app.post("/floorplans/:roomId", async (req, res) => {
       roomId = parseInt(roomIdParam, 10);
     } else {
       const [roomRecord] = await conn.query(
-        "SELECT id FROM floorplan_rooms WHERE user_id = ? AND room_name = ? LIMIT 1",
+        "SELECT id FROM mst_room WHERE user_id = ? AND room_name = ? LIMIT 1",
         [userId, roomIdParam]
       );
 
       if (!roomRecord.length) {
         const [insertResult] = await conn.query(
-          "INSERT INTO floorplan_rooms (user_id, room_name) VALUES (?, ?)",
+          "INSERT INTO mst_room (user_id, room_name) VALUES (?, ?)",
           [userId, roomIdParam]
         );
         roomId = insertResult.insertId;
@@ -777,7 +819,7 @@ app.post("/floorplans/:roomId", async (req, res) => {
 
     // 🔥 HARD CLEAN BEFORE INSERT
     await conn.query(
-      "DELETE FROM floorplans WHERE room_id = ?",
+      "DELETE FROM mst_cubicles WHERE room_id = ?",
       [roomId]
     );
 
@@ -793,7 +835,7 @@ app.post("/floorplans/:roomId", async (req, res) => {
       const itemType = (item?.type || item?.itemType || "cubicle").toLowerCase();
 
       await conn.query(
-        `INSERT INTO floorplans
+        `INSERT INTO mst_cubicles
         (user_id, label, item_type, room_id, x, y, w, h, created_order, version)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
@@ -823,7 +865,11 @@ app.post("/floorplans/:roomId", async (req, res) => {
   } finally {
     conn.release();
   }
-});
+}
+
+app.post("/cubicles/:roomId", handleSaveCubicles);
+// Back-compat alias
+app.post("/floorplans/:roomId", handleSaveCubicles);
 
 app.get("/cubicles", async (req,res)=>{
   const roomId = req.query.roomId;
@@ -831,7 +877,7 @@ app.get("/cubicles", async (req,res)=>{
 
   try {
     const [rows] = await pool.query(
-      "SELECT * FROM floorplans WHERE room_id = ? AND item_type != 'room' AND (label IS NULL OR label != '__ROOM__') ORDER BY created_order ASC, id ASC",
+      "SELECT * FROM mst_cubicles WHERE room_id = ? AND item_type != 'room' AND (label IS NULL OR label != '__ROOM__') ORDER BY created_order ASC, id ASC",
       [roomId]
     );
 
@@ -852,13 +898,13 @@ app.get("/cubicles", async (req,res)=>{
   }
 });
 
-app.get("/floorplans", async (_req, res) => {
+async function handleListCubicles(_req, res) {
   try {
     const [rows] = await pool.query(`
       SELECT f.room_id, f.label, fr.room_name,
              IF(fr.room_name IS NOT NULL, fr.room_name, f.room_id) as display_room_id
-      FROM floorplans f
-      LEFT JOIN floorplan_rooms fr ON f.room_id = fr.id
+      FROM mst_cubicles f
+      LEFT JOIN mst_room fr ON f.room_id = fr.id
       WHERE f.item_type != 'room' AND f.label IS NOT NULL AND TRIM(f.label) != '' AND f.label != ?
       ORDER BY display_room_id ASC, f.label ASC
     `, ['__ROOM__']);
@@ -869,17 +915,20 @@ app.get("/floorplans", async (_req, res) => {
       label: row.label
     }));
 
-    return res.json({ success: true, floorplans: mappedRows });
+    return res.json({ success: true, cubicles: mappedRows });
   } catch (e) {
     console.error("❌ List floorplans error:", e);
     return res.status(500).json({ success: false, error: "Server error listing floorplans" });
   }
-});
+}
+
+app.get("/floorplans", handleListCubicles);
+app.get("/cubicles/list", handleListCubicles);
 
 app.get("/floorplan-rooms", async (req,res)=>{
   try {
     const userId = req.query.userId;
-    let query = "SELECT id, room_name FROM floorplan_rooms";
+    let query = "SELECT id, room_name FROM mst_room";
     const params = [];
     if(userId){
       query += " WHERE user_id=?"; 
@@ -904,7 +953,7 @@ app.get("/floorplan-inventory", async (req,res)=>{
       roomId = parseInt(String(roomIdParam), 10);
     } else {
       const [roomRecord] = await pool.query(
-        "SELECT id FROM floorplan_rooms WHERE LOWER(TRIM(room_name)) = LOWER(TRIM(?)) LIMIT 1",
+        "SELECT id FROM mst_room WHERE LOWER(TRIM(room_name)) = LOWER(TRIM(?)) LIMIT 1",
         [roomIdParam]
       );
       if (!roomRecord.length) {
@@ -921,38 +970,7 @@ app.get("/floorplan-inventory", async (req,res)=>{
   }
 });
 
-app.get("/cubicles", async (req, res) => {
-  const roomId = req.query.roomId;
-
-  if (!roomId) {
-    return res.status(400).json({
-      success: false,
-      error: "roomId is required",
-    });
-  }
-
-  try {
-  
-
-    res.json({
-      success: true, 
-      cubicles: rows
-        .map((row) => ({
-          ...row,
-          type: row.item_type || "cubicle",
-          label: row.item_type === "cubicle" ? row.label : "",
-          x: Number(row.x || 0),
-          y: Number(row.y || 0),
-          w: Number(row.w || 60),
-          h: Number(row.h || 40),
-          createdOrder: Number(row.created_order || 0),
-        })),
-    });
-  } catch (e) {
-    console.error("❌ Fetch cubicles error:", e);
-    res.status(500).json({ success: false, error: "Server error fetching cubicles" });
-  }
-});
+// Removed duplicate /cubicles handler (it referenced undefined `rows`).
 
 /* =========================
    INVENTORY
@@ -1016,7 +1034,7 @@ app.get("/api/inventory/:type", async (req, res) => {
         const [inv] = await pool.query(
           `SELECT i.label, fr.room_name, i.room_id
            FROM inventory i
-           LEFT JOIN floorplan_rooms fr ON i.room_id = fr.id
+           LEFT JOIN mst_room fr ON i.room_id = fr.id
            WHERE LOWER(i.\`${type}\`) = LOWER(?) LIMIT 1`,
           [item.name]
         );
@@ -1248,9 +1266,9 @@ app.post("/api/inventory/import", async (req, res) => {
 ========================= */
 app.put("/api/it-requests/:id", async (req, res) => {
   const requestId = Number(req.params.id);
-  const { status } = req.body;
+  const normalizedStatus = normalizeRequestStatus(req.body?.status);
 
-  if (!validStatuses.includes(status)) {
+  if (!normalizedStatus) {
     return res.status(400).json({ success: false, error: "Invalid status" });
   }
 
@@ -1273,23 +1291,23 @@ app.put("/api/it-requests/:id", async (req, res) => {
     const now = new Date();
 
     const updateFields = ["status = ?"];
-    const updateValues = [status];
+    const updateValues = [normalizedStatus];
 
-    if (status === "inprogress") {
+    if (normalizedStatus === "I") {
       updateFields.push("inprogress_at = ?");
       updateValues.push(now);
     }
 
-    if (status === "completed") {
+    if (normalizedStatus === "C") {
       updateFields.push("completed_at = ?");
       updateValues.push(now);
     }
 
-    if (status === "rejected") {
+    if (normalizedStatus === "R") {
       updateFields.push("rejected_at = ?");
       updateValues.push(now);
       updateFields.push("rejected_from = ?");
-      updateValues.push(currentStatus);
+      updateValues.push(currentStatus === "N" || currentStatus === "I" ? currentStatus : null);
     }
 
     const sql = `
@@ -1306,19 +1324,18 @@ app.put("/api/it-requests/:id", async (req, res) => {
     );
     const requestText = reqRows?.[0]?.request_text || "";
 
-    if (status === "inprogress") {
+    if (normalizedStatus === "I") {
       await reserveRequestedItem(conn, requestId, requestText);
     }
 
-    if (status === "completed") {
+    if (normalizedStatus === "C") {
       await markRequestedItemUsed(conn, requestId, requestText);
     }
 
-    if (status === "rejected") {
+    if (normalizedStatus === "R") {
       await releaseReservedItem(conn, requestId, requestText);
     }
 
-    await syncStatusTablesForRequest(conn, requestId);
     await conn.commit();
 
     res.json({ success: true });
