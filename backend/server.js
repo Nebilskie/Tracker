@@ -205,6 +205,22 @@ async function initializeTables() {
       )
     `);
 
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS mst_building (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id VARCHAR(100) NOT NULL DEFAULT 'GLOBAL',
+        building_name VARCHAR(100) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_user_building_name (user_id, building_name)
+      )
+    `);
+
+    // Ensure we always have a default "storage" building.
+    await conn.query(
+      "INSERT IGNORE INTO mst_building (user_id, building_name) VALUES ('GLOBAL', 'storage')"
+    );
+
     // ---- migrate legacy table name floorplans/cubicles -> mst_cubicles ----
     try {
       const [floorplanTables] = await conn.query("SHOW TABLES LIKE 'floorplans'");
@@ -246,11 +262,99 @@ async function initializeTables() {
       CREATE TABLE IF NOT EXISTS mst_brand (
         id INT AUTO_INCREMENT PRIMARY KEY,
         brand_name VARCHAR(255) NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         UNIQUE KEY uniq_brand_name (brand_name)
       )
     `);
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS mst_item (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        item_type VARCHAR(50) NOT NULL,
+        code VARCHAR(255) NOT NULL,
+        item_details VARCHAR(255) NULL,
+        brand_id INT NULL,
+        building_id INT NOT NULL,
+        room_id INT NULL,
+        cubicle_id INT NULL,
+        status TINYINT NOT NULL DEFAULT 1 COMMENT '0=Defect,1=Available,2=Used',
+        last_update DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_item_type_code (item_type, code),
+        KEY idx_item_brand_id (brand_id),
+        KEY idx_item_building_id (building_id),
+        KEY idx_item_room_id (room_id),
+        KEY idx_item_cubicle_id (cubicle_id),
+        CONSTRAINT fk_mst_item_brand FOREIGN KEY (brand_id) REFERENCES mst_brand(id) ON DELETE SET NULL,
+        CONSTRAINT fk_mst_item_building FOREIGN KEY (building_id) REFERENCES mst_building(id) ON DELETE RESTRICT,
+        CONSTRAINT fk_mst_item_room FOREIGN KEY (room_id) REFERENCES mst_room(id) ON DELETE SET NULL,
+        CONSTRAINT fk_mst_item_cubicle FOREIGN KEY (cubicle_id) REFERENCES mst_cubicles(id) ON DELETE SET NULL
+      )
+    `);
+
+    // Backfill schema for older databases (CREATE TABLE IF NOT EXISTS won't alter existing).
+    const [itemDetailsCol] = await conn.query("SHOW COLUMNS FROM mst_item LIKE 'item_details'");
+    if (!itemDetailsCol.length) {
+      await conn.query("ALTER TABLE mst_item ADD COLUMN item_details VARCHAR(255) NULL AFTER code");
+    }
+
+    const [itemStatusCol] = await conn.query("SHOW COLUMNS FROM mst_item LIKE 'status'");
+    if (!itemStatusCol.length) {
+      await conn.query(
+        "ALTER TABLE mst_item ADD COLUMN status TINYINT NOT NULL DEFAULT 1 COMMENT '0=Defect,1=Available,2=Used' AFTER brand_id"
+      );
+    }
+
+    // Ensure storage building exists and capture its id for backfill.
+    const [storageRows] = await conn.query(
+      "SELECT id FROM mst_building WHERE user_id = 'GLOBAL' AND LOWER(TRIM(building_name)) = 'storage' LIMIT 1"
+    );
+    const storageBuildingId = storageRows?.[0]?.id || null;
+
+    const [buildingIdCol] = await conn.query("SHOW COLUMNS FROM mst_item LIKE 'building_id'");
+    if (!buildingIdCol.length) {
+      // Add nullable first so we can backfill, then enforce NOT NULL.
+      await conn.query("ALTER TABLE mst_item ADD COLUMN building_id INT NULL AFTER brand_id");
+    }
+
+    const [roomIdCol] = await conn.query("SHOW COLUMNS FROM mst_item LIKE 'room_id'");
+    if (!roomIdCol.length) {
+      await conn.query("ALTER TABLE mst_item ADD COLUMN room_id INT NULL AFTER building_id");
+    }
+
+    const [cubicleIdCol] = await conn.query("SHOW COLUMNS FROM mst_item LIKE 'cubicle_id'");
+    if (!cubicleIdCol.length) {
+      await conn.query("ALTER TABLE mst_item ADD COLUMN cubicle_id INT NULL AFTER room_id");
+    }
+
+    if (storageBuildingId) {
+      await conn.query(
+        "UPDATE mst_item SET building_id = ? WHERE building_id IS NULL",
+        [storageBuildingId]
+      );
+    }
+
+    // Enforce not-null building_id (default location is storage).
+    try {
+      await conn.query("ALTER TABLE mst_item MODIFY building_id INT NOT NULL");
+    } catch (_e) {
+      // best-effort: may fail if there are still NULLs or permissions
+    }
+
+    // Best-effort: add foreign keys for older databases.
+    try {
+      await conn.query(
+        "ALTER TABLE mst_item ADD CONSTRAINT fk_mst_item_building FOREIGN KEY (building_id) REFERENCES mst_building(id) ON DELETE RESTRICT"
+      );
+    } catch (_e) {}
+    try {
+      await conn.query(
+        "ALTER TABLE mst_item ADD CONSTRAINT fk_mst_item_room FOREIGN KEY (room_id) REFERENCES mst_room(id) ON DELETE SET NULL"
+      );
+    } catch (_e) {}
+    try {
+      await conn.query(
+        "ALTER TABLE mst_item ADD CONSTRAINT fk_mst_item_cubicle FOREIGN KEY (cubicle_id) REFERENCES mst_cubicles(id) ON DELETE SET NULL"
+      );
+    } catch (_e) {}
 
     // Clean up legacy room placeholder entries in the mst_cubicles table.
 
@@ -1077,7 +1181,7 @@ app.get("/api/inventory/:type", async (req, res) => {
 app.get("/api/brands", async (_req, res) => {
   try {
     const [rows] = await pool.query(
-      "SELECT id, brand_name AS brandName, status, created_at, updated_at FROM mst_brand ORDER BY brand_name ASC"
+      "SELECT id, brand_name AS brandName FROM mst_brand ORDER BY brand_name ASC"
     );
     res.json({ success: true, brands: rows });
   } catch (e) {
@@ -1091,9 +1195,9 @@ app.post("/api/brands", async (req, res) => {
   if (!brandName) return res.status(400).json({ success: false, error: "brandName required" });
 
   try {
-    await pool.query("INSERT INTO mst_brand (brand_name, status) VALUES (?, 'A')", [brandName]);
+    await pool.query("INSERT INTO mst_brand (brand_name) VALUES (?)", [brandName]);
     const [rows] = await pool.query(
-      "SELECT id, brand_name AS brandName, status, created_at, updated_at FROM mst_brand WHERE brand_name = ? LIMIT 1",
+      "SELECT id, brand_name AS brandName FROM mst_brand WHERE brand_name = ? LIMIT 1",
       [brandName]
     );
     return res.json({ success: true, brand: rows[0] });
@@ -1101,7 +1205,7 @@ app.post("/api/brands", async (req, res) => {
     // Duplicate brand (unique constraint) -> return existing record.
     if (e?.code === "ER_DUP_ENTRY") {
       const [rows] = await pool.query(
-        "SELECT id, brand_name AS brandName, status, created_at, updated_at FROM mst_brand WHERE brand_name = ? LIMIT 1",
+        "SELECT id, brand_name AS brandName FROM mst_brand WHERE brand_name = ? LIMIT 1",
         [brandName]
       );
       return res.json({ success: true, brand: rows[0] });
@@ -1119,7 +1223,6 @@ app.put("/api/brands/:id", async (req, res) => {
   }
 
   const brandNameRaw = req.body?.brandName;
-  const statusRaw = req.body?.status;
 
   const updates = [];
   const params = [];
@@ -1129,15 +1232,6 @@ app.put("/api/brands/:id", async (req, res) => {
     if (!brandName) return res.status(400).json({ success: false, error: "brandName cannot be empty" });
     updates.push("brand_name = ?");
     params.push(brandName);
-  }
-
-  if (statusRaw != null) {
-    const status = String(statusRaw).trim().toUpperCase();
-    if (!["A", "I"].includes(status)) {
-      return res.status(400).json({ success: false, error: "status must be 'A' or 'I'" });
-    }
-    updates.push("status = ?");
-    params.push(status);
   }
 
   if (!updates.length) {
@@ -1153,7 +1247,7 @@ app.put("/api/brands/:id", async (req, res) => {
     if (result.affectedRows === 0) return res.status(404).json({ success: false });
 
     const [rows] = await pool.query(
-      "SELECT id, brand_name AS brandName, status, created_at, updated_at FROM mst_brand WHERE id = ? LIMIT 1",
+      "SELECT id, brand_name AS brandName FROM mst_brand WHERE id = ? LIMIT 1",
       [id]
     );
 
@@ -1167,7 +1261,6 @@ app.put("/api/brands/:id", async (req, res) => {
   }
 });
 
-// Soft-delete: marks as inactive so items can still reference the name.
 app.delete("/api/brands/:id", async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id) || id <= 0) {
@@ -1175,12 +1268,237 @@ app.delete("/api/brands/:id", async (req, res) => {
   }
 
   try {
-    const [result] = await pool.query("UPDATE mst_brand SET status = 'I' WHERE id = ?", [id]);
+    const [result] = await pool.query("DELETE FROM mst_brand WHERE id = ?", [id]);
     if (result.affectedRows === 0) return res.status(404).json({ success: false });
     return res.json({ success: true });
   } catch (e) {
     console.error("❌ Brand delete error:", e);
     return res.status(500).json({ success: false });
+  }
+});
+
+/* =========================
+   ITEMS (MASTER)
+========================= */
+const validItemTypes = ["computers", "monitors", "headsets", "mouse", "keyboards", "cameras"];
+
+async function ensureStorageBuildingId(q) {
+  await q.query(
+    "INSERT IGNORE INTO mst_building (user_id, building_name) VALUES ('GLOBAL', 'storage')"
+  );
+  const [rows] = await q.query(
+    "SELECT id FROM mst_building WHERE user_id = 'GLOBAL' AND LOWER(TRIM(building_name)) = 'storage' LIMIT 1"
+  );
+  return rows?.[0]?.id || null;
+}
+
+app.get("/api/items", async (_req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT
+        i.id,
+        i.item_type AS itemType,
+        i.code,
+        i.item_details AS itemDetails,
+        i.brand_id AS brandId,
+        b.brand_name AS brandName,
+        i.building_id AS buildingId,
+        i.room_id AS roomId,
+        i.cubicle_id AS cubicleId,
+        i.status,
+        i.last_update AS lastUpdate
+      FROM mst_item i
+      LEFT JOIN mst_brand b ON b.id = i.brand_id
+      ORDER BY i.item_type ASC, i.code ASC
+    `);
+
+    return res.json({ success: true, items: rows });
+  } catch (e) {
+    console.error("❌ Items fetch error:", e);
+    return res.status(500).json({ success: false });
+  }
+});
+
+app.post("/api/items", async (req, res) => {
+  const itemType = String(req.body?.itemType || "").trim().toLowerCase();
+  const code = String(req.body?.code || "").trim();
+  const itemDetails = req.body?.itemDetails == null ? null : String(req.body.itemDetails).trim() || null;
+  const brandIdRaw = req.body?.brandId;
+  const brandId = brandIdRaw == null || brandIdRaw === "" ? null : Number(brandIdRaw);
+  const buildingIdRaw = req.body?.buildingId;
+  const roomIdRaw = req.body?.roomId;
+  const cubicleIdRaw = req.body?.cubicleId;
+  const buildingId = buildingIdRaw == null || buildingIdRaw === "" ? null : Number(buildingIdRaw);
+  const roomId = roomIdRaw == null || roomIdRaw === "" ? null : Number(roomIdRaw);
+  const cubicleId = cubicleIdRaw == null || cubicleIdRaw === "" ? null : Number(cubicleIdRaw);
+  const statusRaw = req.body?.status;
+  const status = statusRaw == null || statusRaw === "" ? 1 : Number(statusRaw);
+
+  if (!itemType || !validItemTypes.includes(itemType)) {
+    return res.status(400).json({ success: false, error: `itemType must be one of: ${validItemTypes.join(", ")}` });
+  }
+  if (!code) return res.status(400).json({ success: false, error: "code required" });
+  if (brandId != null && (!Number.isFinite(brandId) || brandId <= 0)) {
+    return res.status(400).json({ success: false, error: "brandId must be a positive number" });
+  }
+  if (buildingId != null && (!Number.isFinite(buildingId) || buildingId <= 0)) {
+    return res.status(400).json({ success: false, error: "buildingId must be a positive number" });
+  }
+  if (roomId != null && (!Number.isFinite(roomId) || roomId <= 0)) {
+    return res.status(400).json({ success: false, error: "roomId must be a positive number" });
+  }
+  if (cubicleId != null && (!Number.isFinite(cubicleId) || cubicleId <= 0)) {
+    return res.status(400).json({ success: false, error: "cubicleId must be a positive number" });
+  }
+  if (!Number.isFinite(status) || ![0, 1, 2].includes(status)) {
+    return res.status(400).json({ success: false, error: "status must be 0 (Defect), 1 (Available), or 2 (Used)" });
+  }
+
+  try {
+    const storageBuildingId = await ensureStorageBuildingId(pool);
+    const finalBuildingId = buildingId ?? storageBuildingId;
+    if (!finalBuildingId) {
+      return res.status(500).json({ success: false, error: "Unable to resolve default storage building" });
+    }
+
+    await pool.query(
+      "INSERT INTO mst_item (item_type, code, item_details, brand_id, building_id, room_id, cubicle_id, status, last_update) VALUES (?,?,?,?,?,?,?,?, CURRENT_TIMESTAMP)",
+      [itemType, code, itemDetails, brandId, finalBuildingId, roomId, cubicleId, status]
+    );
+
+    const [rows] = await pool.query(
+      `SELECT id, item_type AS itemType, code, item_details AS itemDetails, brand_id AS brandId,
+              building_id AS buildingId, room_id AS roomId, cubicle_id AS cubicleId,
+              status, last_update AS lastUpdate
+       FROM mst_item WHERE item_type = ? AND code = ? LIMIT 1`,
+      [itemType, code]
+    );
+
+    return res.json({ success: true, item: rows[0] });
+  } catch (e) {
+    if (e?.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({ success: false, error: "Item already exists (item_type + code)" });
+    }
+    if (e?.code === "ER_NO_REFERENCED_ROW_2") {
+      return res.status(400).json({ success: false, error: "brandId does not exist in mst_brand" });
+    }
+    console.error("❌ Item create error:", e);
+    return res.status(500).json({ success: false });
+  }
+});
+
+app.post("/api/items/import", async (req, res) => {
+  const { csvData } = req.body;
+  if (!csvData || !Array.isArray(csvData)) {
+    return res.status(400).json({ success: false, error: "csvData must be an array of objects" });
+  }
+
+  const conn = await pool.getConnection();
+
+  try {
+    await conn.beginTransaction();
+
+    const storageBuildingId = await ensureStorageBuildingId(conn);
+    if (!storageBuildingId) {
+      await conn.rollback();
+      return res.status(500).json({ success: false, error: "Unable to resolve default storage building" });
+    }
+
+    let importedCount = 0;
+    let skippedCount = 0;
+    const errors = [];
+
+    for (let i = 0; i < csvData.length; i++) {
+      const row = csvData[i];
+
+      try {
+        const itemType = String(row.item_type ?? row.itemType ?? "").trim().toLowerCase();
+        const code = String(row.code ?? "").trim();
+        const itemDetails = row.item_details ?? row.itemDetails ?? null;
+        const brandIdRaw = row.brand_id ?? row.brandId ?? null;
+        const brandId = brandIdRaw == null || brandIdRaw === "" ? null : Number(brandIdRaw);
+        const buildingIdRaw = row.building_id ?? row.buildingId ?? null;
+        const roomIdRaw = row.room_id ?? row.roomId ?? null;
+        const cubicleIdRaw = row.cubicle_id ?? row.cubicleId ?? null;
+        const buildingId = buildingIdRaw == null || buildingIdRaw === "" ? null : Number(buildingIdRaw);
+        const roomId = roomIdRaw == null || roomIdRaw === "" ? null : Number(roomIdRaw);
+        const cubicleId = cubicleIdRaw == null || cubicleIdRaw === "" ? null : Number(cubicleIdRaw);
+        const statusRaw = row.status ?? null;
+        const status = statusRaw == null || statusRaw === "" ? 1 : Number(statusRaw);
+
+        if (!itemType || !validItemTypes.includes(itemType)) {
+          errors.push(`Row ${i + 1}: Invalid item_type '${row.item_type ?? row.itemType ?? ""}'`);
+          continue;
+        }
+        if (!code) {
+          errors.push(`Row ${i + 1}: Missing code`);
+          continue;
+        }
+        if (brandId != null && (!Number.isFinite(brandId) || brandId <= 0)) {
+          errors.push(`Row ${i + 1}: Invalid brand_id '${brandIdRaw}'`);
+          continue;
+        }
+        if (buildingId != null && (!Number.isFinite(buildingId) || buildingId <= 0)) {
+          errors.push(`Row ${i + 1}: Invalid building_id '${buildingIdRaw}'`);
+          continue;
+        }
+        if (roomId != null && (!Number.isFinite(roomId) || roomId <= 0)) {
+          errors.push(`Row ${i + 1}: Invalid room_id '${roomIdRaw}'`);
+          continue;
+        }
+        if (cubicleId != null && (!Number.isFinite(cubicleId) || cubicleId <= 0)) {
+          errors.push(`Row ${i + 1}: Invalid cubicle_id '${cubicleIdRaw}'`);
+          continue;
+        }
+        if (!Number.isFinite(status) || ![0, 1, 2].includes(status)) {
+          errors.push(`Row ${i + 1}: Invalid status '${statusRaw}'. Must be 0, 1, or 2`);
+          continue;
+        }
+
+        const [existing] = await conn.query(
+          "SELECT id FROM mst_item WHERE item_type = ? AND code = ? LIMIT 1",
+          [itemType, code]
+        );
+        if (existing.length) {
+          skippedCount++;
+          continue;
+        }
+
+        await conn.query(
+          "INSERT INTO mst_item (item_type, code, item_details, brand_id, building_id, room_id, cubicle_id, status, last_update) VALUES (?,?,?,?,?,?,?,?, CURRENT_TIMESTAMP)",
+          [
+            itemType,
+            code,
+            itemDetails == null ? null : String(itemDetails).trim() || null,
+            brandId,
+            buildingId ?? storageBuildingId,
+            roomId,
+            cubicleId,
+            status,
+          ]
+        );
+
+        importedCount++;
+      } catch (rowError) {
+        console.error(`❌ Error processing mst_item row ${i + 1}:`, rowError);
+        errors.push(`Row ${i + 1}: ${rowError.message}`);
+      }
+    }
+
+    await conn.commit();
+
+    return res.json({
+      success: true,
+      imported: importedCount,
+      skipped: skippedCount,
+      errors: errors.length ? errors : undefined,
+    });
+  } catch (e) {
+    await conn.rollback();
+    console.error("❌ mst_item import error:", e);
+    return res.status(500).json({ success: false, error: "Import failed" });
+  } finally {
+    conn.release();
   }
 });
 
