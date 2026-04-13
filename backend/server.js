@@ -242,6 +242,16 @@ async function initializeTables() {
       )
     `);
 
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS mst_brand (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        brand_name VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_brand_name (brand_name)
+      )
+    `);
+
     // Clean up legacy room placeholder entries in the mst_cubicles table.
 
     const [createdOrderCol] = await conn.query(
@@ -1058,6 +1068,119 @@ app.get("/api/inventory/:type", async (req, res) => {
   } catch (e) {
     console.error("❌ Inventory fetch error:", e);
     res.status(500).json({ success: false });
+  }
+});
+
+/* =========================
+   BRANDS (MASTER)
+========================= */
+app.get("/api/brands", async (_req, res) => {
+  try {
+    const [rows] = await pool.query(
+      "SELECT id, brand_name AS brandName, status, created_at, updated_at FROM mst_brand ORDER BY brand_name ASC"
+    );
+    res.json({ success: true, brands: rows });
+  } catch (e) {
+    console.error("❌ Brands fetch error:", e);
+    res.status(500).json({ success: false });
+  }
+});
+
+app.post("/api/brands", async (req, res) => {
+  const brandName = String(req.body?.brandName || "").trim();
+  if (!brandName) return res.status(400).json({ success: false, error: "brandName required" });
+
+  try {
+    await pool.query("INSERT INTO mst_brand (brand_name, status) VALUES (?, 'A')", [brandName]);
+    const [rows] = await pool.query(
+      "SELECT id, brand_name AS brandName, status, created_at, updated_at FROM mst_brand WHERE brand_name = ? LIMIT 1",
+      [brandName]
+    );
+    return res.json({ success: true, brand: rows[0] });
+  } catch (e) {
+    // Duplicate brand (unique constraint) -> return existing record.
+    if (e?.code === "ER_DUP_ENTRY") {
+      const [rows] = await pool.query(
+        "SELECT id, brand_name AS brandName, status, created_at, updated_at FROM mst_brand WHERE brand_name = ? LIMIT 1",
+        [brandName]
+      );
+      return res.json({ success: true, brand: rows[0] });
+    }
+
+    console.error("❌ Brand create error:", e);
+    return res.status(500).json({ success: false });
+  }
+});
+
+app.put("/api/brands/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id) || id <= 0) {
+    return res.status(400).json({ success: false, error: "Invalid id" });
+  }
+
+  const brandNameRaw = req.body?.brandName;
+  const statusRaw = req.body?.status;
+
+  const updates = [];
+  const params = [];
+
+  if (brandNameRaw != null) {
+    const brandName = String(brandNameRaw).trim();
+    if (!brandName) return res.status(400).json({ success: false, error: "brandName cannot be empty" });
+    updates.push("brand_name = ?");
+    params.push(brandName);
+  }
+
+  if (statusRaw != null) {
+    const status = String(statusRaw).trim().toUpperCase();
+    if (!["A", "I"].includes(status)) {
+      return res.status(400).json({ success: false, error: "status must be 'A' or 'I'" });
+    }
+    updates.push("status = ?");
+    params.push(status);
+  }
+
+  if (!updates.length) {
+    return res.status(400).json({ success: false, error: "No fields to update" });
+  }
+
+  try {
+    const [result] = await pool.query(
+      `UPDATE mst_brand SET ${updates.join(", ")} WHERE id = ?`,
+      [...params, id]
+    );
+
+    if (result.affectedRows === 0) return res.status(404).json({ success: false });
+
+    const [rows] = await pool.query(
+      "SELECT id, brand_name AS brandName, status, created_at, updated_at FROM mst_brand WHERE id = ? LIMIT 1",
+      [id]
+    );
+
+    return res.json({ success: true, brand: rows[0] });
+  } catch (e) {
+    if (e?.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({ success: false, error: "Brand name already exists" });
+    }
+    console.error("❌ Brand update error:", e);
+    return res.status(500).json({ success: false });
+  }
+});
+
+// Soft-delete: marks as inactive so items can still reference the name.
+app.delete("/api/brands/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id) || id <= 0) {
+    return res.status(400).json({ success: false, error: "Invalid id" });
+  }
+
+  try {
+    const [result] = await pool.query("UPDATE mst_brand SET status = 'I' WHERE id = ?", [id]);
+    if (result.affectedRows === 0) return res.status(404).json({ success: false });
+    return res.json({ success: true });
+  } catch (e) {
+    console.error("❌ Brand delete error:", e);
+    return res.status(500).json({ success: false });
   }
 });
 
