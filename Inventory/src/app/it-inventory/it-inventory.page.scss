@@ -236,16 +236,24 @@
 .asset-table thead {
   background: var(--bg-table-header, #3b4998);
   color: var(--text-on-dark, #fff);
+  border-radius: 12px 12px 0 0;
 }
 
 .asset-table th {
-  padding: 12px 16px;
+  padding: 16px 18px;
   text-align: left;
   font-weight: 600;
   font-size: 11px;
   white-space: nowrap;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+
+  &.brand-col {
+    text-transform: lowercase;
+    font-weight: 600;
+    color: var(--text-on-dark, #fff);
+    font-size: 11px;
+  }
 
   &:first-child {
     border-radius: 12px 0 0 0;
@@ -256,11 +264,17 @@
 }
 
 .asset-table td {
-  padding: 11px 16px;
+  padding: 14px 18px;
   border-bottom: 1px solid var(--border-light, #f0f0f0);
   color: var(--text-secondary, #444);
   white-space: nowrap;
   transition: background-color 0.15s ease;
+
+  &.brand-col {
+    text-transform: none;
+    font-weight: 700;
+    color: var(--text-primary, #333);
+  }
 }
 
 .asset-table tbody tr {
@@ -346,6 +360,9 @@
     color: #fff;
     border-color: var(--accent-primary, #667eea);
     box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+    min-width: 36px;
+    height: 36px;
+    border-radius: 50%;
   }
 }
 

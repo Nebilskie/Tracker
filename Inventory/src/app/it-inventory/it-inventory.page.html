@@ -1,30 +1,7 @@
 <ion-content>
   <div class="list-container">
 
-    <!-- Category Buttons (shown when no assetType selected) -->
-    <div class="category-section" *ngIf="false">
-      <div class="category-title">Select Asset Type</div>
-      <div class="category-buttons">
-        <button class="category-btn" (click)="selectAssetType('computers')">
-          <span>Computers</span>
-        </button>
-        <button class="category-btn" (click)="selectAssetType('monitors')">
-          <span>Monitors</span>
-        </button>
-        <button class="category-btn" (click)="selectAssetType('headsets')">
-          <span>Headsets</span>
-        </button>
-        <button class="category-btn" (click)="selectAssetType('mouse')">
-          <span>Mouse</span>
-        </button>
-        <button class="category-btn" (click)="selectAssetType('keyboards')">
-          <span>Keyboards</span>
-        </button>
-        <button class="category-btn" (click)="selectAssetType('cameras')">
-          <span>Cameras</span>
-        </button>
-      </div>
-    </div>
+    <!-- Category buttons removed — types are loaded dynamically from server -->
 
     <!-- Toolbar (shown when assetType selected) -->
     <div class="toolbar">
@@ -33,12 +10,7 @@
         <!-- Category Filter -->
         <select class="category-filter" [(ngModel)]="assetType" (change)="loadAssetDataManual()">
           <option value="">All Inventory</option>
-          <option value="computers">Computers</option>
-          <option value="monitors">Monitors</option>
-          <option value="headsets">Headsets</option>
-          <option value="mouse">Mouse</option>
-          <option value="keyboards">Keyboards</option>
-          <option value="cameras">Cameras</option>
+          <option *ngFor="let t of assetTypes" [value]="t">{{ displayLabel(t) }}</option>
         </select>
 
         <!-- Import Button -->
@@ -113,12 +85,12 @@
       <table class="asset-table">
         <thead>
           <tr>
-            <th *ngFor="let col of columns">{{ col.label }}</th>
+            <th *ngFor="let col of columns" [ngClass]="{ 'brand-col': col.key === 'brand' }">{{ col.label }}</th>
           </tr>
         </thead>
         <tbody>
           <tr *ngFor="let row of pagedRows">
-            <td *ngFor="let col of columns; let first = first">
+            <td *ngFor="let col of columns; let first = first" [ngClass]="{ 'brand-col': col.key === 'brand' }">
               <span [class.name-link]="first">{{ row[col.key] ?? '' }}</span>
             </td>
           </tr>

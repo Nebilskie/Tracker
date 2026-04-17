@@ -20,12 +20,20 @@ app.use(
 );
 
 app.use(express.json());
+// allow raw text/csv bodies to be parsed into req.body as string
+app.use(express.text({ type: ['text/csv', 'text/plain'] }));
 
 app.use((req, res, next) => {
   const deviceId = req.headers["x-device-id"];
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
   if (deviceId) console.log(`📱 Device: ${deviceId}`);
   next();
+});
+
+// Quick health route for debugging
+app.get('/ping', (req, res) => {
+  console.log('[PING] received');
+  res.json({ success: true, now: new Date().toISOString() });
 });
 
 const validStatuses = ["N", "I", "R", "C"];
@@ -277,6 +285,7 @@ async function initializeTables() {
         room_id INT NULL,
         cubicle_id INT NULL,
         status TINYINT NOT NULL DEFAULT 1 COMMENT '0=Defect,1=Available,2=Used',
+        location VARCHAR(255) DEFAULT NULL,
         last_update DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY uniq_item_type_code (item_type, code),
         KEY idx_item_brand_id (brand_id),
@@ -376,36 +385,13 @@ async function initializeTables() {
       );
     }
 
-    await conn.query(`
-      CREATE TABLE IF NOT EXISTS computers (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        status VARCHAR(50) DEFAULT NULL,
-        manufacturer VARCHAR(255) DEFAULT NULL,
-        serial_number VARCHAR(255) DEFAULT NULL,
-        type VARCHAR(255) DEFAULT NULL,
-        model VARCHAR(255) DEFAULT NULL,
-        os VARCHAR(255) DEFAULT NULL,
-        location VARCHAR(255) DEFAULT NULL,
-        last_update DATETIME DEFAULT NULL,
-        processor VARCHAR(255) DEFAULT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      )
-    `);
-
+    // Ensure inventory is a simple mapping table (label per room)
     await conn.query(`
       CREATE TABLE IF NOT EXISTS inventory (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id VARCHAR(100),
         room_id INT,
         label VARCHAR(100),
-        monitors VARCHAR(255) DEFAULT NULL,
-        headsets VARCHAR(255) DEFAULT NULL,
-        cameras VARCHAR(255) DEFAULT NULL,
-        mouse VARCHAR(255) DEFAULT NULL,
-        keyboards VARCHAR(255) DEFAULT NULL,
-        computers VARCHAR(255) DEFAULT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         UNIQUE KEY uniq_user_room_label (user_id, room_id, label),
@@ -413,40 +399,62 @@ async function initializeTables() {
       )
     `);
 
-    await conn.query(`ALTER TABLE inventory MODIFY monitors VARCHAR(255) NULL`);
-    await conn.query(`ALTER TABLE inventory MODIFY headsets VARCHAR(255) NULL`);
-    await conn.query(`ALTER TABLE inventory MODIFY cameras VARCHAR(255) NULL`);
-    await conn.query(`ALTER TABLE inventory MODIFY mouse VARCHAR(255) NULL`);
-    await conn.query(`ALTER TABLE inventory MODIFY keyboards VARCHAR(255) NULL`);
-    await conn.query(`ALTER TABLE inventory MODIFY computers VARCHAR(255) NULL`);
-
-    const createInventoryTable = async (tableName) => {
-      await conn.query(`
-        CREATE TABLE IF NOT EXISTS \`${tableName}\` (
-          id INT AUTO_INCREMENT PRIMARY KEY,
-          name VARCHAR(255) NOT NULL,
-          status VARCHAR(50) DEFAULT NULL,
-          manufacturer VARCHAR(255) DEFAULT NULL,
-          location VARCHAR(255) DEFAULT NULL,
-          model VARCHAR(255) DEFAULT NULL,
-          last_update DATETIME DEFAULT NULL,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-        )
-      `);
-    };
-
-    await createInventoryTable("monitors");
-    await createInventoryTable("headsets");
-    await createInventoryTable("mouse");
-    await createInventoryTable("keyboards");
-    await createInventoryTable("cameras");
-    await createInventoryTable("computers");
+    // Drop legacy per-item-type tables (we now use mst_item)
+    try {
+      await conn.query("DROP TABLE IF EXISTS monitors");
+      await conn.query("DROP TABLE IF EXISTS headsets");
+      await conn.query("DROP TABLE IF EXISTS cameras");
+      await conn.query("DROP TABLE IF EXISTS mouse");
+      await conn.query("DROP TABLE IF EXISTS keyboards");
+      await conn.query("DROP TABLE IF EXISTS computers");
+    } catch (_e) {
+      // ignore drop errors
+    }
 
     console.log("✅ Tables ready");
   } finally {
     conn.release();
   }
+}
+
+// Simple CSV parser: returns array of objects using header row
+function parseCSVTextToObjects(text) {
+  if (!text || typeof text !== 'string') return [];
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l !== '');
+  if (!lines.length) return [];
+  const headers = parseCSVLineToArray(lines[0]);
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = parseCSVLineToArray(lines[i]);
+    if (cols.length === 0) continue;
+    const row = {};
+    for (let j = 0; j < headers.length; j++) {
+      row[headers[j]] = cols[j] == null ? '' : cols[j];
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
+function parseCSVLineToArray(line) {
+  const result = [];
+  let cur = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++; }
+        else inQuotes = false;
+      } else cur += ch;
+    } else {
+      if (ch === '"') { inQuotes = true; }
+      else if (ch === ',') { result.push(cur); cur = ''; }
+      else cur += ch;
+    }
+  }
+  result.push(cur);
+  return result.map(s => s.trim());
 }
 
 /* =========================
@@ -459,15 +467,13 @@ async function upsertFloorplanInventory(conn, userId, roomId, floorItems) {
 
   for (const item of floorItems) {
     // 🔥 SKIP ROOM + INVALID
-    if (!item?.label || item.label === "__ROOM__") continue;
+    if (!item?.label || item.label === ROOM_PLACEHOLDER_LABEL) continue;
 
     if ((item.type || item.itemType || "cubicle") !== "cubicle") continue;
 
     await conn.query(
-      `INSERT INTO inventory
-       (user_id, room_id, label, monitors, headsets, cameras, mouse, keyboards, computers)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [userId, roomId, item.label, null, null, null, null, null, null]
+      `INSERT INTO inventory (user_id, room_id, label) VALUES (?, ?, ?)`,
+      [userId, roomId, item.label]
     );
   }
 }
@@ -475,13 +481,13 @@ async function upsertFloorplanInventory(conn, userId, roomId, floorItems) {
 function resolveInventoryTableFromRequestText(requestText) {
   const text = (requestText || "").toLowerCase();
   const mapping = {
-    monitor: "monitors",
-    headset: "headsets",
-    webcam: "cameras",
-    camera: "cameras",
+    monitor: "monitor",
+    headset: "headset",
+    webcam: "camera",
+    camera: "camera",
     mouse: "mouse",
-    keyboard: "keyboards",
-    computer: "computers",
+    keyboard: "keyboard",
+    computer: "computer",
   };
 
   for (const key of Object.keys(mapping)) {
@@ -498,115 +504,105 @@ function extractCubicleLabel(requestText) {
   return match2 ? match2[1] : null;
 }
 
-function inventoryColumnFromRequestType(table) {
-  const columnMap = {
-    monitors: "monitors",
-    headsets: "headsets",
-    cameras: "cameras",
-    mouse: "mouse",
-    keyboards: "keyboards",
-    computers: "computers",
-  };
-  return columnMap[table] || null;
-}
+// not needed anymore: inventory columns removed; use mst_item for actual items
 
-async function setFloorplanInventoryValue(conn, roomId, label, column, value) {
-  if (!roomId || !label || !column) return;
+async function setFloorplanInventoryValue(conn, roomId, label, itemType, itemCode) {
+  if (!roomId || !label || !itemType) return;
 
-  const validColumns = ["monitors", "headsets", "cameras", "mouse", "keyboards", "computers"];
-  if (!validColumns.includes(column)) return;
-
-  const [result] = await conn.query(
-    `UPDATE inventory SET ${column} = ? WHERE room_id = ? AND label = ?`,
-    [value, roomId, label]
+  // Find cubicle id for the label
+  const [cubRows] = await conn.query(
+    "SELECT id FROM mst_cubicles WHERE label = ? LIMIT 1",
+    [label]
   );
+  const cubicleId = cubRows?.[0]?.id || null;
 
-  if (result.affectedRows === 0) {
+  if (itemCode) {
+    // assign the item to the cubicle
     await conn.query(
-      `INSERT INTO inventory (user_id, room_id, label, ${column}) VALUES (?, ?, ?, ?)`,
-      [null, roomId, label, value]
+      `UPDATE mst_item SET room_id = ?, cubicle_id = ?, updated_at = CURRENT_TIMESTAMP WHERE item_type = ? AND code = ?`,
+      [roomId, cubicleId, itemType, itemCode]
     );
+  } else {
+    // clear assignment for any item of this type assigned to this cubicle
+    if (cubicleId) {
+      await conn.query(
+        `UPDATE mst_item SET cubicle_id = NULL, room_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE item_type = ? AND cubicle_id = ?`,
+        [itemType, cubicleId]
+      );
+    }
   }
 
-  // 🔥 NEW: update location in actual table
-  if (value) {
-    await updateItemLocation(conn, column, value);
+  // Update location text on the item row (optional) by calling updateItemLocation
+  if (itemCode) {
+    await updateItemLocation(conn, 'mst_item', itemCode);
   }
 }
 
 
 async function reserveRequestedItem(conn, requestId, requestText) {
-  const targetTable = resolveInventoryTableFromRequestText(requestText);
-  if (!targetTable) return;
+  const itemType = resolveInventoryTableFromRequestText(requestText);
+  if (!itemType) return;
 
   const [reqRows] = await conn.query(
-    "SELECT user_id, inventory_table, inventory_item_id, inventory_item_name FROM requests WHERE id = ?",
+    "SELECT user_id FROM requests WHERE id = ?",
     [requestId]
   );
 
   const userId = reqRows?.[0]?.user_id || null;
 
   try {
+    // find an available mst_item of this type
     const [availableRows] = await conn.query(
-      `SELECT id FROM \`${targetTable}\` WHERE status = 'Available' ORDER BY updated_at ASC LIMIT 1`
+      `SELECT id, code FROM mst_item WHERE item_type = ? AND status = 1 ORDER BY last_update ASC LIMIT 1`,
+      [itemType]
     );
 
     if (!availableRows.length) return;
 
     const itemId = availableRows[0].id;
+    const itemName = availableRows[0].code || null;
 
     await conn.query(
-      `UPDATE \`${targetTable}\` SET status = 'InUse', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      `UPDATE mst_item SET status = 2, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
       [itemId]
     );
-
-    const [itemRows] = await conn.query(
-      `SELECT name FROM \`${targetTable}\` WHERE id = ?`,
-      [itemId]
-    );
-    const itemName = itemRows?.[0]?.name || null;
 
     await conn.query(
       `UPDATE requests SET inventory_table = ?, inventory_item_id = ?, inventory_item_name = ? WHERE id = ?`,
-      [targetTable, itemId, itemName, requestId]
+      ['mst_item', itemId, itemName, requestId]
     );
 
     const cubicleLabel = extractCubicleLabel(requestText);
-    const inventoryColumn = inventoryColumnFromRequestType(targetTable);
 
-    if (cubicleLabel && inventoryColumn && userId) {
-      const [roomRows] = await conn.query(
-        "SELECT room_id FROM mst_cubicles WHERE label = ? LIMIT 1",
+    if (cubicleLabel && userId) {
+      const [cubRows] = await conn.query(
+        "SELECT id AS cubicle_id, room_id FROM mst_cubicles WHERE label = ? LIMIT 1",
         [cubicleLabel]
       );
-      const roomId = roomRows?.[0]?.room_id || null;
+      const cubicleId = cubRows?.[0]?.cubicle_id || null;
+      const roomId = cubRows?.[0]?.room_id || null;
 
       if (roomId) {
-        const [existingRows] = await conn.query(
-          `SELECT ?? AS current_item FROM inventory WHERE room_id = ? AND label = ? LIMIT 1`,
-          [inventoryColumn, roomId, cubicleLabel]
+        // previous item assigned to this cubicle for this type
+        const [prev] = await conn.query(
+          `SELECT id, code FROM mst_item WHERE cubicle_id = ? AND item_type = ? LIMIT 1`,
+          [cubicleId, itemType]
         );
 
-        const previousItemName = existingRows?.[0]?.current_item || null;
-
+        const previousItemName = prev?.[0]?.code || null;
         if (previousItemName && previousItemName !== itemName) {
-          await conn.query(
-            `UPDATE \`${targetTable}\` SET status = 'Defect', updated_at = CURRENT_TIMESTAMP WHERE name = ? AND LOWER(TRIM(status)) = 'used'`,
-            [previousItemName]
-          );
-
-          await conn.query(
-            `UPDATE \`${targetTable}\` SET status = 'Available', updated_at = CURRENT_TIMESTAMP WHERE name = ? AND LOWER(TRIM(status)) = 'inuse'`,
-            [previousItemName]
-          );
-
           await conn.query(
             `UPDATE requests SET previous_inventory_item_name = ? WHERE id = ?`,
             [previousItemName, requestId]
           );
+          // detach previous item from cubicle
+          await conn.query(
+            `UPDATE mst_item SET cubicle_id = NULL, room_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+            [prev[0].id]
+          );
         }
 
-        await setFloorplanInventoryValue(conn, roomId, cubicleLabel, inventoryColumn, itemName);
+        await setFloorplanInventoryValue(conn, roomId, cubicleLabel, itemType, itemName);
       }
     }
   } catch (err) {
@@ -622,36 +618,35 @@ async function releaseReservedItem(conn, requestId, requestText) {
     );
 
     const userId = reqRows?.[0]?.user_id || null;
-    const targetTable = reqRows?.[0]?.inventory_table;
     const itemId = reqRows?.[0]?.inventory_item_id;
 
-    if (!targetTable || !itemId) return;
+    if (!itemId) return;
 
     const [existing] = await conn.query(
-      `SELECT status FROM \`${targetTable}\` WHERE id = ?`,
+      `SELECT status, item_type, code FROM mst_item WHERE id = ?`,
       [itemId]
     );
 
-    if (existing.length && existing[0].status === "InUse") {
-      await conn.query(
-        `UPDATE \`${targetTable}\` SET status = 'Available', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-        [itemId]
-      );
+    if (!existing.length) return;
+
+    const row = existing[0];
+    if (row.status === 2) {
+      // mark available
+      await conn.query(`UPDATE mst_item SET status = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [itemId]);
 
       const cubicleLabel = extractCubicleLabel(requestText);
-      const inventoryColumn = inventoryColumnFromRequestType(targetTable);
+      const itemType = row.item_type;
 
-      if (cubicleLabel && inventoryColumn && userId) {
-        const [roomRows] = await conn.query(
-          "SELECT room_id FROM mst_cubicles WHERE label = ? LIMIT 1",
+      if (cubicleLabel && itemType && userId) {
+        const [cubRows] = await conn.query(
+          "SELECT id AS cubicle_id, room_id FROM mst_cubicles WHERE label = ? LIMIT 1",
           [cubicleLabel]
         );
-        const roomId = roomRows?.[0]?.room_id || null;
+        const roomId = cubRows?.[0]?.room_id || null;
 
         if (roomId) {
-          
-        await setFloorplanInventoryValue(conn, roomId, cubicleLabel, inventoryColumn, null);
-        await updateItemLocation(conn, targetTable, null);
+          await setFloorplanInventoryValue(conn, roomId, cubicleLabel, itemType, null);
+          await updateItemLocation(conn, 'mst_item', null);
         }
       }
     }
@@ -668,36 +663,29 @@ async function markRequestedItemUsed(conn, requestId, requestText) {
     );
 
     const userId = reqRows?.[0]?.user_id || null;
-    const targetTable =
-      reqRows?.[0]?.inventory_table || resolveInventoryTableFromRequestText(requestText);
     const itemId = reqRows?.[0]?.inventory_item_id || null;
+    const itemTypeFromText = resolveInventoryTableFromRequestText(requestText);
 
-    if (!targetTable || !itemId) return;
+    if (!itemId) return;
 
-    await conn.query(
-      `UPDATE \`${targetTable}\` SET status = 'Used', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-      [itemId]
-    );
+    await conn.query(`UPDATE mst_item SET status = 2, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [itemId]);
 
-    const [itemRows] = await conn.query(
-      `SELECT name FROM \`${targetTable}\` WHERE id = ?`,
-      [itemId]
-    );
-    const itemName = itemRows?.[0]?.name || null;
+    const [itemRows] = await conn.query(`SELECT code, item_type FROM mst_item WHERE id = ?`, [itemId]);
+    const itemName = itemRows?.[0]?.code || null;
+    const itemType = itemRows?.[0]?.item_type || itemTypeFromText;
 
     const cubicleLabel = extractCubicleLabel(requestText);
-    const inventoryColumn = inventoryColumnFromRequestType(targetTable);
 
-    if (cubicleLabel && inventoryColumn && userId) {
+    if (cubicleLabel && itemType && userId) {
       const [roomRows] = await conn.query(
-        "SELECT room_id FROM mst_cubicles WHERE label = ? LIMIT 1",
+        "SELECT id AS cubicle_id, room_id FROM mst_cubicles WHERE label = ? LIMIT 1",
         [cubicleLabel]
       );
       const roomId = roomRows?.[0]?.room_id || null;
 
       if (roomId) {
-        await setFloorplanInventoryValue(conn, roomId, cubicleLabel, inventoryColumn, itemName);
-        await updateItemLocation(conn, targetTable, itemName);
+        await setFloorplanInventoryValue(conn, roomId, cubicleLabel, itemType, itemName);
+        await updateItemLocation(conn, 'mst_item', itemName);
       }
     }
   } catch (err) {
@@ -706,29 +694,42 @@ async function markRequestedItemUsed(conn, requestId, requestText) {
 }
 
 async function updateItemLocation(conn, table, itemName) {
-  if (!table || !itemName) return;
+  // table currently expected to be 'mst_item' when used
+  if (table !== 'mst_item' || !itemName) return;
 
-  // Find cubicle + room from inventory table
-  const [rows] = await conn.query(
-    `SELECT i.label, fr.room_name, i.room_id
-     FROM inventory i
-     LEFT JOIN mst_room fr ON i.room_id = fr.id
-     WHERE LOWER(${table}) = LOWER(?) 
-     LIMIT 1`,
+  // find item by code
+  const [items] = await conn.query(
+    `SELECT room_id, cubicle_id FROM mst_item WHERE LOWER(code) = LOWER(?) LIMIT 1`,
     [itemName]
   );
 
+  if (!items.length) return;
+
+  const item = items[0];
+
   let location = null;
 
-  if (rows.length) {
-    location = `${rows[0].label} Room ${rows[0].room_name || rows[0].room_id}`;
+  if (item.cubicle_id) {
+    const [cub] = await conn.query(
+      `SELECT label, room_id FROM mst_cubicles WHERE id = ? LIMIT 1`,
+      [item.cubicle_id]
+    );
+    if (cub.length) {
+      const [rr] = await conn.query(
+        `SELECT room_name FROM mst_room WHERE id = ? LIMIT 1`,
+        [cub[0].room_id]
+      );
+      const roomName = rr?.[0]?.room_name || cub[0].room_id;
+      location = `${cub[0].label} Room ${roomName}`;
+    }
+  } else if (item.room_id) {
+    const [roomRows] = await conn.query(`SELECT room_name FROM mst_room WHERE id = ? LIMIT 1`, [item.room_id]);
+    const roomName = roomRows?.[0]?.room_name || item.room_id;
+    location = `Room ${roomName}`;
   }
 
-  // Update location in actual inventory table
   await conn.query(
-    `UPDATE \`${table}\` 
-     SET location = ?, updated_at = CURRENT_TIMESTAMP 
-     WHERE name = ?`,
+    `UPDATE mst_item SET location = ?, updated_at = CURRENT_TIMESTAMP WHERE LOWER(code) = LOWER(?)`,
     [location, itemName]
   );
 }
@@ -756,39 +757,106 @@ app.post("/login", async (req, res) => {
 /* =========================
    REQUESTS
 ========================= */
-app.post("/api/it-requests", async (req, res) => {
-  const { userId, username, requestText, reason } = req.body;
+// Inventory GET by type (also handles legacy /api/inventory/summary requests when routed here)
+app.get('/api/inventory/:type', async (req, res) => {
+  const typeParam = String(req.params.type || '').trim();
   const conn = await pool.getConnection();
 
   try {
-    await conn.beginTransaction();
+    // If client accidentally hits this route with 'summary', return the aggregated summary
+    if (typeParam.toLowerCase() === 'summary') {
+      const [sumRows] = await conn.query(
+        `SELECT TRIM(item_type) AS name,
+                COUNT(*) AS total,
+                SUM(CASE WHEN status = 0 THEN 1 ELSE 0 END) AS defects,
+                SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END) AS used,
+                SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) AS available
+         FROM mst_item
+         GROUP BY TRIM(item_type)
+         ORDER BY TRIM(item_type) ASC`
+      );
 
-    const [result] = await conn.query(
-      "INSERT INTO requests (user_id,username,request_text,reason,status) VALUES (?,?,?,?, 'N')",
-      [userId, username, requestText, reason]
+      const summary = (sumRows || []).map(r => ({
+        name: r.name || 'Unknown',
+        total: Number(r.total || 0),
+        defects: Number(r.defects || 0),
+        used: Number(r.used || 0),
+        available: Number(r.available || 0)
+      }));
+
+      return res.json({ success: true, summary });
+    }
+
+    // Normal per-type listing — compute a human-friendly location from cubicle/room/building
+    console.log(`[inventory] requested type='${typeParam}'`);
+    const [rows] = await conn.query(
+      `SELECT i.id,
+              i.item_type,
+              i.code,
+              i.item_details,
+              i.status,
+              CASE
+                WHEN c.id IS NOT NULL AND COALESCE(rm_cub.room_name,'') <> '' THEN CONCAT(c.label, ' Room ', COALESCE(rm_cub.room_name,''))
+                WHEN i.room_id IS NOT NULL AND COALESCE(rm_item.room_name,'') <> '' THEN CONCAT('Room ', COALESCE(rm_item.room_name,''))
+                WHEN bld.building_name IS NOT NULL THEN bld.building_name
+                ELSE ''
+              END AS location,
+              i.last_update,
+              b.brand_name AS manufacturer
+       FROM mst_item i
+       LEFT JOIN mst_brand b ON b.id = i.brand_id
+       LEFT JOIN mst_cubicles c ON c.id = i.cubicle_id
+       LEFT JOIN mst_room rm_cub ON rm_cub.id = c.room_id
+       LEFT JOIN mst_room rm_item ON rm_item.id = i.room_id
+       LEFT JOIN mst_building bld ON bld.id = i.building_id
+       WHERE LOWER(TRIM(COALESCE(i.item_type,''))) = LOWER(TRIM(?))
+       ORDER BY i.code ASC`,
+      [typeParam]
     );
 
-    await conn.commit();
+    console.log(`[inventory] primary query returned ${rows.length} rows`);
 
-    res.json({ success: true });
+    // Fallback: if primary query returned nothing, try a permissive LIKE match (handles variants)
+    if (!rows.length) {
+      const [fallbackRows] = await conn.query(
+        `SELECT i.id,
+                i.item_type,
+                i.code,
+                i.item_details,
+                i.status,
+                CASE
+                  WHEN c.id IS NOT NULL AND COALESCE(rm_cub.room_name,'') <> '' THEN CONCAT(c.label, ' Room ', COALESCE(rm_cub.room_name,''))
+                  WHEN i.room_id IS NOT NULL AND COALESCE(rm_item.room_name,'') <> '' THEN CONCAT('Room ', COALESCE(rm_item.room_name,''))
+                  WHEN bld.building_name IS NOT NULL THEN bld.building_name
+                  ELSE ''
+                END AS location,
+                i.last_update,
+                b.brand_name AS manufacturer
+         FROM mst_item i
+         LEFT JOIN mst_brand b ON b.id = i.brand_id
+         LEFT JOIN mst_cubicles c ON c.id = i.cubicle_id
+         LEFT JOIN mst_room rm_cub ON rm_cub.id = c.room_id
+         LEFT JOIN mst_room rm_item ON rm_item.id = i.room_id
+         LEFT JOIN mst_building bld ON bld.id = i.building_id
+         WHERE LOWER(COALESCE(i.item_type,'')) LIKE LOWER(CONCAT('%', ?, '%'))
+         ORDER BY i.code ASC`,
+        [typeParam]
+      );
+
+      console.log(`[inventory] fallback LIKE query returned ${fallbackRows.length} rows`);
+      if (fallbackRows.length) return res.json({ success: true, items: fallbackRows });
+    }
+
+    res.json({ success: true, items: rows });
   } catch (e) {
-    await conn.rollback();
-    console.error(e);
-    res.status(500).json({ success: false });
+    console.error('❌ /api/inventory/:type error', e);
+    res.status(500).json({ success: false, error: 'Server error' });
   } finally {
     conn.release();
   }
 });
 
-app.get("/api/it-requests", async (_req, res) => {
-  const [rows] = await pool.query("SELECT * FROM requests ORDER BY created_at DESC");
-  res.json({ success: true, requests: rows });
-});
-
-/* =========================
-   FLOORPLANS / ROOMS
-========================= */
-app.post("/rooms", async (req,res)=>{
+app.post("/rooms", async (req, res) => {
   const { roomId, userId } = req.body;
   if (!roomId || !userId) {
     return res.status(400).json({ success:false, error:"roomId and userId required" });
@@ -851,17 +919,21 @@ async function handleGetCubicles(req,res){
       [roomId]
     );
 
-    const [inventoryRows] = await conn.query(
-      "SELECT label, monitors, headsets, cameras, mouse, keyboards, computers FROM inventory WHERE room_id = ?",
+    // Fetch items assigned to cubicles in this room and map by cubicle_id
+    const [itemRows] = await conn.query(
+      `SELECT id, item_type, code, cubicle_id FROM mst_item WHERE room_id = ? AND cubicle_id IS NOT NULL`,
       [roomId]
     );
 
-    const inventoryMap = new Map(
-      inventoryRows.map((row) => [row.label, row])
-    );
+    const cubMap = new Map();
+    for (const it of itemRows) {
+      const key = it.cubicle_id;
+      if (!cubMap.has(key)) cubMap.set(key, {});
+      cubMap.get(key)[it.item_type] = it.code;
+    }
 
     const cubicles = rows.map(row => {
-      const inventory = inventoryMap.get(row.label) || {};
+      const items = cubMap.get(row.id) || {};
       return {
         id: Number(row.id),
         type: row.item_type || "cubicle",
@@ -871,12 +943,12 @@ async function handleGetCubicles(req,res){
         w: Number(row.w || 60),
         h: Number(row.h || 40),
         createdOrder: Number(row.created_order || 0),
-        monitors: inventory.monitors || null,
-        headsets: inventory.headsets || null,
-        cameras: inventory.cameras || null,
-        mouse: inventory.mouse || null,
-        keyboards: inventory.keyboards || null,
-        computers: inventory.computers || null,
+        monitors: items.monitor || null,
+        headsets: items.headset || null,
+        cameras: items.camera || null,
+        mouse: items.mouse || null,
+        keyboards: items.keyboard || null,
+        computers: items.computer || null,
       };
     });
 
@@ -1087,93 +1159,12 @@ app.get("/floorplan-inventory", async (req,res)=>{
 // Removed duplicate /cubicles handler (it referenced undefined `rows`).
 
 /* =========================
-   INVENTORY
+   INVENTORY (via mst_item)
 ========================= */
-const inventoryTables = [
-  "computers",
-  "monitors",
-  "headsets",
-  "mouse",
-  "keyboards",
-  "cameras",
-];
 
-app.get("/api/inventory/summary", async (_req, res) => {
-  try {
-    const summary = [];
+// Inventory summary endpoint removed per request
 
-    for (const table of inventoryTables) {
-      const [rows] = await pool.query(
-        `SELECT
-           COUNT(*) AS total,
-           SUM(CASE WHEN LOWER(TRIM(status)) = 'Defect' THEN 1 ELSE 0 END) AS defects,
-           SUM(CASE WHEN LOWER(TRIM(status)) = 'Available' THEN 1 ELSE 0 END) AS available,
-           SUM(CASE WHEN LOWER(TRIM(status)) = 'Used' THEN 1 ELSE 0 END) AS used
-         FROM \`${table}\``
-      );
 
-      summary.push({
-        name: table.charAt(0).toUpperCase() + table.slice(1),
-        total: Number(rows[0]?.total || 0),
-        defects: Number(rows[0]?.defects || 0),
-        available: Number(rows[0]?.available || 0),
-        used: Number(rows[0]?.used || 0),
-      });
-    }
-
-    res.json({ success: true, summary });
-  } catch (e) {
-    console.error("❌ Inventory summary error:", e);
-    res.status(500).json({ success: false });
-  }
-});
-
-app.get("/api/inventory/:type", async (req, res) => {
-  const { type } = req.params;
-
-  if (!inventoryTables.includes(type)) {
-    return res.status(400).json({ success: false, error: "Invalid inventory type" });
-  }
-
-  try {
-    const [rows] = await pool.query(`SELECT * FROM \`${type}\` ORDER BY name ASC`);
-
-    const items = await Promise.all(rows.map(async (item) => {
-      const status = String(item.status || '').trim().toLowerCase();
-      let location = null;
-
-      if (status === 'available' || status === 'defect') {
-        location = 'storage';
-      } else {
-        const [inv] = await pool.query(
-          `SELECT i.label, fr.room_name, i.room_id
-           FROM inventory i
-           LEFT JOIN mst_room fr ON i.room_id = fr.id
-           WHERE LOWER(i.\`${type}\`) = LOWER(?) LIMIT 1`,
-          [item.name]
-        );
-
-        if (inv.length) {
-          location = `${inv[0].label} Room ${inv[0].room_name || inv[0].room_id}`;
-        }
-      }
-
-      if (location !== item.location) {
-        await pool.query(
-          `UPDATE \`${type}\` SET location = ? WHERE id = ?`,
-          [location, item.id]
-        );
-      }
-
-      return { ...item, location };
-    }));
-
-    res.json({ success: true, items });
-  } catch (e) {
-    console.error("❌ Inventory fetch error:", e);
-    res.status(500).json({ success: false });
-  }
-});
 
 /* =========================
    BRANDS (MASTER)
@@ -1278,9 +1269,9 @@ app.delete("/api/brands/:id", async (req, res) => {
 });
 
 /* =========================
-   ITEMS (MASTER)
+  ITEMS (MASTER)
+  Note: allowed item types are now dynamic and come from `mst_item.item_type` values.
 ========================= */
-const validItemTypes = ["computers", "monitors", "headsets", "mouse", "keyboards", "cameras"];
 
 async function ensureStorageBuildingId(q) {
   await q.query(
@@ -1292,411 +1283,98 @@ async function ensureStorageBuildingId(q) {
   return rows?.[0]?.id || null;
 }
 
-app.get("/api/items", async (_req, res) => {
-  try {
-    const [rows] = await pool.query(`
-      SELECT
-        i.id,
-        i.item_type AS itemType,
-        i.code,
-        i.item_details AS itemDetails,
-        i.brand_id AS brandId,
-        b.brand_name AS brandName,
-        i.building_id AS buildingId,
-        i.room_id AS roomId,
-        i.cubicle_id AS cubicleId,
-        i.status,
-        i.last_update AS lastUpdate
-      FROM mst_item i
-      LEFT JOIN mst_brand b ON b.id = i.brand_id
-      ORDER BY i.item_type ASC, i.code ASC
-    `);
-
-    return res.json({ success: true, items: rows });
-  } catch (e) {
-    console.error("❌ Items fetch error:", e);
-    return res.status(500).json({ success: false });
-  }
-});
-
-app.post("/api/items", async (req, res) => {
-  const itemType = String(req.body?.itemType || "").trim().toLowerCase();
-  const code = String(req.body?.code || "").trim();
-  const itemDetails = req.body?.itemDetails == null ? null : String(req.body.itemDetails).trim() || null;
-  const brandIdRaw = req.body?.brandId;
-  const brandId = brandIdRaw == null || brandIdRaw === "" ? null : Number(brandIdRaw);
-  const buildingIdRaw = req.body?.buildingId;
-  const roomIdRaw = req.body?.roomId;
-  const cubicleIdRaw = req.body?.cubicleId;
-  const buildingId = buildingIdRaw == null || buildingIdRaw === "" ? null : Number(buildingIdRaw);
-  const roomId = roomIdRaw == null || roomIdRaw === "" ? null : Number(roomIdRaw);
-  const cubicleId = cubicleIdRaw == null || cubicleIdRaw === "" ? null : Number(cubicleIdRaw);
-  const statusRaw = req.body?.status;
-  const status = statusRaw == null || statusRaw === "" ? 1 : Number(statusRaw);
-
-  if (!itemType || !validItemTypes.includes(itemType)) {
-    return res.status(400).json({ success: false, error: `itemType must be one of: ${validItemTypes.join(", ")}` });
-  }
-  if (!code) return res.status(400).json({ success: false, error: "code required" });
-  if (brandId != null && (!Number.isFinite(brandId) || brandId <= 0)) {
-    return res.status(400).json({ success: false, error: "brandId must be a positive number" });
-  }
-  if (buildingId != null && (!Number.isFinite(buildingId) || buildingId <= 0)) {
-    return res.status(400).json({ success: false, error: "buildingId must be a positive number" });
-  }
-  if (roomId != null && (!Number.isFinite(roomId) || roomId <= 0)) {
-    return res.status(400).json({ success: false, error: "roomId must be a positive number" });
-  }
-  if (cubicleId != null && (!Number.isFinite(cubicleId) || cubicleId <= 0)) {
-    return res.status(400).json({ success: false, error: "cubicleId must be a positive number" });
-  }
-  if (!Number.isFinite(status) || ![0, 1, 2].includes(status)) {
-    return res.status(400).json({ success: false, error: "status must be 0 (Defect), 1 (Available), or 2 (Used)" });
-  }
-
-  try {
-    const storageBuildingId = await ensureStorageBuildingId(pool);
-    const finalBuildingId = buildingId ?? storageBuildingId;
-    if (!finalBuildingId) {
-      return res.status(500).json({ success: false, error: "Unable to resolve default storage building" });
-    }
-
-    await pool.query(
-      "INSERT INTO mst_item (item_type, code, item_details, brand_id, building_id, room_id, cubicle_id, status, last_update) VALUES (?,?,?,?,?,?,?,?, CURRENT_TIMESTAMP)",
-      [itemType, code, itemDetails, brandId, finalBuildingId, roomId, cubicleId, status]
-    );
-
-    const [rows] = await pool.query(
-      `SELECT id, item_type AS itemType, code, item_details AS itemDetails, brand_id AS brandId,
-              building_id AS buildingId, room_id AS roomId, cubicle_id AS cubicleId,
-              status, last_update AS lastUpdate
-       FROM mst_item WHERE item_type = ? AND code = ? LIMIT 1`,
-      [itemType, code]
-    );
-
-    return res.json({ success: true, item: rows[0] });
-  } catch (e) {
-    if (e?.code === "ER_DUP_ENTRY") {
-      return res.status(409).json({ success: false, error: "Item already exists (item_type + code)" });
-    }
-    if (e?.code === "ER_NO_REFERENCED_ROW_2") {
-      return res.status(400).json({ success: false, error: "brandId does not exist in mst_brand" });
-    }
-    console.error("❌ Item create error:", e);
-    return res.status(500).json({ success: false });
-  }
-});
-
-app.post("/api/items/import", async (req, res) => {
-  const { csvData } = req.body;
-  if (!csvData || !Array.isArray(csvData)) {
-    return res.status(400).json({ success: false, error: "csvData must be an array of objects" });
-  }
-
+app.get('/api/items', async (_req, res) => {
   const conn = await pool.getConnection();
-
   try {
-    await conn.beginTransaction();
-
-    const storageBuildingId = await ensureStorageBuildingId(conn);
-    if (!storageBuildingId) {
-      await conn.rollback();
-      return res.status(500).json({ success: false, error: "Unable to resolve default storage building" });
-    }
-
-    let importedCount = 0;
-    let skippedCount = 0;
-    const errors = [];
-
-    for (let i = 0; i < csvData.length; i++) {
-      const row = csvData[i];
-
-      try {
-        const itemType = String(row.item_type ?? row.itemType ?? "").trim().toLowerCase();
-        const code = String(row.code ?? "").trim();
-        const itemDetails = row.item_details ?? row.itemDetails ?? null;
-        const brandIdRaw = row.brand_id ?? row.brandId ?? null;
-        const brandId = brandIdRaw == null || brandIdRaw === "" ? null : Number(brandIdRaw);
-        const buildingIdRaw = row.building_id ?? row.buildingId ?? null;
-        const roomIdRaw = row.room_id ?? row.roomId ?? null;
-        const cubicleIdRaw = row.cubicle_id ?? row.cubicleId ?? null;
-        const buildingId = buildingIdRaw == null || buildingIdRaw === "" ? null : Number(buildingIdRaw);
-        const roomId = roomIdRaw == null || roomIdRaw === "" ? null : Number(roomIdRaw);
-        const cubicleId = cubicleIdRaw == null || cubicleIdRaw === "" ? null : Number(cubicleIdRaw);
-        const statusRaw = row.status ?? null;
-        const status = statusRaw == null || statusRaw === "" ? 1 : Number(statusRaw);
-
-        if (!itemType || !validItemTypes.includes(itemType)) {
-          errors.push(`Row ${i + 1}: Invalid item_type '${row.item_type ?? row.itemType ?? ""}'`);
-          continue;
-        }
-        if (!code) {
-          errors.push(`Row ${i + 1}: Missing code`);
-          continue;
-        }
-        if (brandId != null && (!Number.isFinite(brandId) || brandId <= 0)) {
-          errors.push(`Row ${i + 1}: Invalid brand_id '${brandIdRaw}'`);
-          continue;
-        }
-        if (buildingId != null && (!Number.isFinite(buildingId) || buildingId <= 0)) {
-          errors.push(`Row ${i + 1}: Invalid building_id '${buildingIdRaw}'`);
-          continue;
-        }
-        if (roomId != null && (!Number.isFinite(roomId) || roomId <= 0)) {
-          errors.push(`Row ${i + 1}: Invalid room_id '${roomIdRaw}'`);
-          continue;
-        }
-        if (cubicleId != null && (!Number.isFinite(cubicleId) || cubicleId <= 0)) {
-          errors.push(`Row ${i + 1}: Invalid cubicle_id '${cubicleIdRaw}'`);
-          continue;
-        }
-        if (!Number.isFinite(status) || ![0, 1, 2].includes(status)) {
-          errors.push(`Row ${i + 1}: Invalid status '${statusRaw}'. Must be 0, 1, or 2`);
-          continue;
-        }
-
-        const [existing] = await conn.query(
-          "SELECT id FROM mst_item WHERE item_type = ? AND code = ? LIMIT 1",
-          [itemType, code]
-        );
-        if (existing.length) {
-          skippedCount++;
-          continue;
-        }
-
-        await conn.query(
-          "INSERT INTO mst_item (item_type, code, item_details, brand_id, building_id, room_id, cubicle_id, status, last_update) VALUES (?,?,?,?,?,?,?,?, CURRENT_TIMESTAMP)",
-          [
-            itemType,
-            code,
-            itemDetails == null ? null : String(itemDetails).trim() || null,
-            brandId,
-            buildingId ?? storageBuildingId,
-            roomId,
-            cubicleId,
-            status,
-          ]
-        );
-
-        importedCount++;
-      } catch (rowError) {
-        console.error(`❌ Error processing mst_item row ${i + 1}:`, rowError);
-        errors.push(`Row ${i + 1}: ${rowError.message}`);
-      }
-    }
-
-    await conn.commit();
-
-    return res.json({
-      success: true,
-      imported: importedCount,
-      skipped: skippedCount,
-      errors: errors.length ? errors : undefined,
-    });
+    const [rows] = await conn.query(
+      `SELECT i.id, i.item_type, i.code, i.item_details, i.status,
+              CASE
+                WHEN c.id IS NOT NULL AND COALESCE(rm_cub.room_name,'') <> '' THEN CONCAT(c.label, ' Room ', COALESCE(rm_cub.room_name,''))
+                WHEN i.room_id IS NOT NULL AND COALESCE(rm_item.room_name,'') <> '' THEN CONCAT('Room ', COALESCE(rm_item.room_name,''))
+                WHEN bld.building_name IS NOT NULL THEN bld.building_name
+                ELSE ''
+                    END AS location,
+                    i.last_update, b.brand_name AS manufacturer
+       FROM mst_item i
+       LEFT JOIN mst_brand b ON b.id = i.brand_id
+       LEFT JOIN mst_cubicles c ON c.id = i.cubicle_id
+       LEFT JOIN mst_room rm_cub ON rm_cub.id = c.room_id
+       LEFT JOIN mst_room rm_item ON rm_item.id = i.room_id
+       LEFT JOIN mst_building bld ON bld.id = i.building_id
+       ORDER BY i.code ASC`
+    );
+    res.json({ success: true, items: rows });
   } catch (e) {
-    await conn.rollback();
-    console.error("❌ mst_item import error:", e);
-    return res.status(500).json({ success: false, error: "Import failed" });
+    console.error('❌ /api/items error', e);
+    res.status(500).json({ success: false, error: 'Server error' });
   } finally {
     conn.release();
   }
 });
 
-app.post("/api/inventory/:type/import", async (req, res) => {
-  const { type } = req.params;
-  const { csvData } = req.body;
-
-  if (!inventoryTables.includes(type)) {
-    return res.status(400).json({ success: false, error: "Invalid inventory type" });
-  }
-
-  if (!csvData || !Array.isArray(csvData)) {
-    return res.status(400).json({ success: false, error: "csvData must be an array of objects" });
-  }
-
+// Return distinct item types present in mst_item
+app.get('/api/items/types', async (_req, res) => {
   const conn = await pool.getConnection();
-
   try {
-    await conn.beginTransaction();
-
-    let importedCount = 0;
-    let skippedCount = 0;
-    const errors = [];
-
-    for (let i = 0; i < csvData.length; i++) {
-      const row = csvData[i];
-
-      try {
-        // Validate required fields
-        if (!row.name || typeof row.name !== 'string' || !row.name.trim()) {
-          errors.push(`Row ${i + 1}: Missing or invalid name`);
-          continue;
-        }
-
-        // Prepare data based on table type
-        const insertData = { name: row.name.trim() };
-
-        if (type === 'computers') {
-          insertData.status = row.status || 'Available';
-          insertData.manufacturer = row.manufacturer || null;
-          insertData.serial_number = row.serial_number || null;
-          // Keep the table type column clean: use a dedicated CSV column if provided.
-          const computerType = (row.computer_type || row.item_type || (row.type && row.type.trim().toLowerCase() !== 'computers' ? row.type : null));
-          insertData.type = computerType || null;
-          insertData.model = row.model || null;
-          insertData.os = row.os || null;
-          insertData.location = row.location || null;
-          insertData.last_update = new Date();
-          insertData.processor = row.processor || null;
-        } else {
-          insertData.status = row.status || 'Available';
-          insertData.manufacturer = row.manufacturer || null;
-          insertData.location = row.location || null;
-          insertData.model = row.model || null;
-          insertData.last_update = new Date();
-        }
-
-        // Check if item already exists
-        const [existing] = await conn.query(
-          `SELECT id FROM \`${type}\` WHERE name = ?`,
-          [insertData.name]
-        );
-
-        if (existing.length > 0) {
-          skippedCount++;
-          continue;
-        }
-
-        // Insert new item
-        await conn.query(
-          `INSERT INTO \`${type}\` SET ?`,
-          [insertData]
-        );
-
-        importedCount++;
-      } catch (rowError) {
-        console.error(`❌ Error processing row ${i + 1}:`, rowError);
-        errors.push(`Row ${i + 1}: ${rowError.message}`);
-      }
-    }
-
-    await conn.commit();
-
-    res.json({
-      success: true,
-      imported: importedCount,
-      skipped: skippedCount,
-      errors: errors.length > 0 ? errors : undefined
-    });
-
+    const [rows] = await conn.query(
+      `SELECT DISTINCT TRIM(item_type) AS item_type FROM mst_item WHERE item_type IS NOT NULL AND TRIM(item_type) <> '' ORDER BY item_type ASC`
+    );
+    const types = rows.map(r => r.item_type).filter(Boolean);
+    res.json({ success: true, types });
   } catch (e) {
-    await conn.rollback();
-    console.error("❌ Inventory import error:", e);
-    res.status(500).json({ success: false, error: "Import failed" });
+    console.error('❌ /api/items/types error', e);
+    res.status(500).json({ success: false, error: 'Server error' });
   } finally {
     conn.release();
   }
 });
 
-// Bulk import endpoint - supports multiple inventory types in one CSV
-app.post("/api/inventory/import", async (req, res) => {
-  const { csvData } = req.body;
+app.post('/api/items', async (req, res) => {
+  // Creating master items is not supported via this endpoint in current build
+  res.status(410).json({ success: false, error: 'Endpoint not supported' });
+});
 
-  if (!csvData || !Array.isArray(csvData)) {
-    return res.status(400).json({ success: false, error: "csvData must be an array of objects" });
-  }
+app.post('/api/items/import', async (req, res) => {
+  // Importing master items is disabled in this build
+  res.status(410).json({ success: false, error: 'Endpoint not supported' });
+});
 
+app.post('/api/inventory/:type/import', async (req, res) => {
+  res.status(410).json({ success: false, error: 'Endpoint not supported' });
+});
+
+// Bulk inventory import endpoint disabled
+app.post('/api/inventory/import', async (req, res) => {
+  res.status(410).json({ success: false, error: 'Endpoint not supported' });
+});
+
+// Inventory summary grouped by item_type
+app.get('/api/inventory/summary', async (_req, res) => {
   const conn = await pool.getConnection();
-
   try {
-    await conn.beginTransaction();
+    const [rows] = await conn.query(
+      `SELECT item_type AS name,
+              COUNT(*) AS total,
+              SUM(CASE WHEN status = 0 THEN 1 ELSE 0 END) AS defects,
+              SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END) AS used,
+              SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) AS available
+       FROM mst_item
+       GROUP BY item_type
+       ORDER BY item_type ASC`
+    );
 
-    let importedCount = 0;
-    let skippedCount = 0;
-    const errors = [];
-    const currentTime = new Date();
+    const summary = (rows || []).map(r => ({
+      name: r.name || 'Unknown',
+      total: Number(r.total || 0),
+      defects: Number(r.defects || 0),
+      used: Number(r.used || 0),
+      available: Number(r.available || 0)
+    }));
 
-    for (let i = 0; i < csvData.length; i++) {
-      const row = csvData[i];
-
-      try {
-        // Validate required fields
-        if (!row.name || typeof row.name !== 'string' || !row.name.trim()) {
-          errors.push(`Row ${i + 1}: Missing or invalid name`);
-          continue;
-        }
-
-        if (!row.type || typeof row.type !== 'string' || !row.type.trim()) {
-          errors.push(`Row ${i + 1}: Missing or invalid type`);
-          continue;
-        }
-
-        const type = row.type.trim().toLowerCase();
-        if (!inventoryTables.includes(type)) {
-          errors.push(`Row ${i + 1}: Invalid type '${row.type}'. Must be one of: ${inventoryTables.join(', ')}`);
-          continue;
-        }
-
-        // Prepare data based on table type
-        const insertData = { name: row.name.trim() };
-
-        if (type === 'computers') {
-          insertData.status = row.status || 'Available';
-          insertData.manufacturer = row.manufacturer || null;
-          insertData.serial_number = row.serial_number || null;
-          // Avoid inserting inventory category into computer table type column
-          const computerType = (row.computer_type || row.item_type || (row.type && row.type.trim().toLowerCase() !== 'computers' ? row.type : null));
-          insertData.type = computerType || null;
-          insertData.model = row.model || null;
-          insertData.os = row.os || null;
-          insertData.location = row.location || null;
-          insertData.last_update = currentTime;
-          insertData.processor = row.processor || null;
-        } else {
-          insertData.status = row.status || 'Available';
-          insertData.manufacturer = row.manufacturer || null;
-          insertData.location = row.location || null;
-          insertData.model = row.model || null;
-          insertData.last_update = currentTime;
-        }
-
-        // Check if item already exists
-        const [existing] = await conn.query(
-          `SELECT id FROM \`${type}\` WHERE name = ?`,
-          [insertData.name]
-        );
-
-        if (existing.length > 0) {
-          skippedCount++;
-          continue;
-        }
-
-        // Insert new item
-        await conn.query(
-          `INSERT INTO \`${type}\` SET ?`,
-          [insertData]
-        );
-
-        importedCount++;
-      } catch (rowError) {
-        console.error(`❌ Error processing row ${i + 1}:`, rowError);
-        errors.push(`Row ${i + 1}: ${rowError.message}`);
-      }
-    }
-
-    await conn.commit();
-
-    res.json({
-      success: true,
-      imported: importedCount,
-      skipped: skippedCount,
-      errors: errors.length > 0 ? errors : undefined
-    });
-
+    res.json({ success: true, summary });
   } catch (e) {
-    await conn.rollback();
-    console.error("❌ Bulk inventory import error:", e);
-    res.status(500).json({ success: false, error: "Import failed" });
+    console.error('❌ /api/inventory/summary error', e);
+    res.status(500).json({ success: false, error: 'Server error' });
   } finally {
     conn.release();
   }
@@ -1705,12 +1383,12 @@ app.post("/api/inventory/import", async (req, res) => {
 /* =========================
    UPDATE REQUEST STATUS
 ========================= */
-app.put("/api/it-requests/:id", async (req, res) => {
+app.put('/api/it-requests/:id', async (req, res) => {
   const requestId = Number(req.params.id);
   const normalizedStatus = normalizeRequestStatus(req.body?.status);
 
   if (!normalizedStatus) {
-    return res.status(400).json({ success: false, error: "Invalid status" });
+    return res.status(400).json({ success: false, error: 'Invalid status' });
   }
 
   const conn = await pool.getConnection();
@@ -1719,7 +1397,7 @@ app.put("/api/it-requests/:id", async (req, res) => {
     await conn.beginTransaction();
 
     const [rows] = await conn.query(
-      "SELECT status FROM requests WHERE id = ?",
+      'SELECT status FROM requests WHERE id = ?',
       [requestId]
     );
 
@@ -1731,49 +1409,41 @@ app.put("/api/it-requests/:id", async (req, res) => {
     const currentStatus = rows[0].status;
     const now = new Date();
 
-    const updateFields = ["status = ?"];
+    const updateFields = ['status = ?'];
     const updateValues = [normalizedStatus];
 
-    if (normalizedStatus === "I") {
-      updateFields.push("inprogress_at = ?");
+    if (normalizedStatus === 'I') {
+      updateFields.push('inprogress_at = ?');
       updateValues.push(now);
     }
 
-    if (normalizedStatus === "C") {
-      updateFields.push("completed_at = ?");
+    if (normalizedStatus === 'C') {
+      updateFields.push('completed_at = ?');
       updateValues.push(now);
     }
 
-    if (normalizedStatus === "R") {
-      updateFields.push("rejected_at = ?");
+    if (normalizedStatus === 'R') {
+      updateFields.push('rejected_at = ?');
       updateValues.push(now);
-      updateFields.push("rejected_from = ?");
-      updateValues.push(currentStatus === "N" || currentStatus === "I" ? currentStatus : null);
+      updateFields.push('rejected_from = ?');
+      updateValues.push(currentStatus === 'N' || currentStatus === 'I' ? currentStatus : null);
     }
 
-    const sql = `
-      UPDATE requests
-      SET ${updateFields.join(", ")}
-      WHERE id = ?
-    `;
-
+    const sql = `UPDATE requests SET ${updateFields.join(', ')} WHERE id = ?`;
     await conn.query(sql, [...updateValues, requestId]);
 
-    const [reqRows] = await conn.query(
-      "SELECT request_text FROM requests WHERE id = ?",
-      [requestId]
-    );
-    const requestText = reqRows?.[0]?.request_text || "";
+    const [reqRows] = await conn.query('SELECT request_text FROM requests WHERE id = ?', [requestId]);
+    const requestText = reqRows?.[0]?.request_text || '';
 
-    if (normalizedStatus === "I") {
+    if (normalizedStatus === 'I') {
       await reserveRequestedItem(conn, requestId, requestText);
     }
 
-    if (normalizedStatus === "C") {
+    if (normalizedStatus === 'C') {
       await markRequestedItemUsed(conn, requestId, requestText);
     }
 
-    if (normalizedStatus === "R") {
+    if (normalizedStatus === 'R') {
       await releaseReservedItem(conn, requestId, requestText);
     }
 
@@ -1781,13 +1451,9 @@ app.put("/api/it-requests/:id", async (req, res) => {
 
     res.json({ success: true });
   } catch (e) {
-    await conn.rollback();
-    console.error("❌ Update status error:", e);
-    res.status(500).json({
-      success: false,
-      error: e.message || "Database error",
-      details: e.stack,
-    });
+    try { await conn.rollback(); } catch (_) {}
+    console.error('❌ Update status error:', e);
+    res.status(500).json({ success: false, error: e.message || 'Database error' });
   } finally {
     conn.release();
   }
