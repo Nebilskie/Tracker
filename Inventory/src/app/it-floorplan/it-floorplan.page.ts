@@ -3,7 +3,8 @@ import {
   OnInit,
   OnDestroy,
   ViewChild,
-  ElementRef
+  ElementRef,
+  ChangeDetectorRef
 } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { Preferences } from '@capacitor/preferences';
@@ -40,6 +41,31 @@ type RectBox = {
   y2: number;
 };
 
+export type MstBuilding = {
+  id: number;
+  user_id: string;
+  building_name: string;
+  created_at?: string;
+};
+
+export type BuildingRoom = {
+  id: number;
+  room_name: string;
+  user_id: string;
+  building_id: number;
+  cubicles?: number;
+  itemsAssigned?: number;
+};
+
+type RoomPreview = {
+  roomId: number;
+  items: FloorItem[];
+  minX: number;
+  minY: number;
+  contentW: number;
+  contentH: number;
+};
+
 @Component({
   selector: 'app-it-floorplan',
   templateUrl: './it-floorplan.page.html',
@@ -51,7 +77,24 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
 
   roomId = '';
   userId: number | null = null;
-  rooms: string[] = [];
+
+  buildings: MstBuilding[] = [];
+  activeBuildingId: number | null = null;
+  buildingSearch = '';
+  showFloorCanvas = false;
+
+  rooms: BuildingRoom[] = [];
+  activeRoomId: number | null = null;
+  hoveredRoomId: number | null = null;
+  hoveredBuildingId: number | null = null;
+  buildingHoverStyle: Record<string, any> = {};
+  roomHoverStyle: Record<string, any> = {};
+
+  private buildingRoomsCache = new Map<number, BuildingRoom[]>();
+  buildingRoomsLoadingId: number | null = null;
+
+  private roomPreviewCache = new Map<number, RoomPreview>();
+  roomPreviewLoadingId: number | null = null;
 
   selectedColor = '#4caf50';
   selectedItemType: FloorItemType = 'cubicle';
@@ -71,12 +114,21 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
   floorItems: FloorItem[] = [];
   cubicleCount = 1;
 
+  private hasUnsavedEdits = false;
+  private editSnapshot:
+    | {
+        floorItems: FloorItem[];
+        cubicleCount: number;
+      }
+    | null = null;
+
   private readonly gridSize = 20;
   private readonly minItemSize = 20;
 
   private readonly KEY_TOOLBOX_POS = 'floorplan_toolbox_pos';
-  private readonly KEY_FLOORPLAN_ROOMS = 'floorplan_rooms';
   private readonly KEY_CURRENT_ROOM = 'floorplan_current_room';
+  private readonly KEY_CURRENT_BUILDING = 'floorplan_current_building_id';
+  private readonly KEY_CURRENT_ROOM_ID = 'floorplan_current_room_id';
 
   private toolboxDragging = false;
   private toolboxDragOffsetX = 0;
@@ -130,26 +182,497 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
     }
   };
 
-  constructor(private floorplanApi: FloorplanApiService) {}
+  constructor(
+    private floorplanApi: FloorplanApiService,
+    private cdr: ChangeDetectorRef
+  ) {}
 
   async ngOnInit() {
     await this.loadToolboxPos();
-    await this.loadSavedRooms();
-
     this.userId = await this.getCurrentUserId();
+    await this.loadBuildingsFromApi();
+    await this.warmBuildingPreviews();
 
-    const { value: savedRoom } = await Preferences.get({ key: this.KEY_CURRENT_ROOM });
-    if (savedRoom) {
-      this.roomId = savedRoom;
-      if (!this.rooms.includes(savedRoom)) {
-        this.rooms.push(savedRoom);
+    const { value: savedBid } = await Preferences.get({
+      key: this.KEY_CURRENT_BUILDING,
+    });
+    if (savedBid) {
+      const id = Number(savedBid);
+      if (!Number.isNaN(id) && this.buildings.some((b) => b.id === id)) {
+        this.activeBuildingId = id;
+      }
+    }
+    if (this.activeBuildingId == null && this.buildings.length) {
+      this.activeBuildingId = this.buildings[0].id;
+    }
+
+    // Load rooms for current building
+    if (this.activeBuildingId != null) {
+      await this.loadRoomsForBuilding(this.activeBuildingId);
+
+      const { value: savedRoomId } = await Preferences.get({
+        key: this.KEY_CURRENT_ROOM_ID,
+      });
+      if (savedRoomId) {
+        const rid = Number(savedRoomId);
+        if (!Number.isNaN(rid) && this.rooms.some((r) => r.id === rid)) {
+          this.activeRoomId = rid;
+        }
+      }
+      if (this.activeRoomId == null && this.rooms.length) {
+        this.activeRoomId = this.rooms[0].id;
       }
     }
 
     window.addEventListener('keydown', this.handleKeyDelete);
+  }
 
-    await this.loadRoomsFromDb();
-    await this.loadFloorplanForRoom(this.roomId);
+  get activeBuilding(): MstBuilding | null {
+    return (
+      this.buildings.find((b) => b.id === this.activeBuildingId) ?? null
+    );
+  }
+
+  get filteredBuildings(): MstBuilding[] {
+    const t = String(this.buildingSearch || '')
+      .toLowerCase()
+      .trim();
+    if (!t) return this.buildings;
+    return this.buildings.filter((b) =>
+      String(b.building_name || '')
+        .toLowerCase()
+        .includes(t)
+    );
+  }
+
+  onBuildingMouseEnter(b: MstBuilding, ev?: MouseEvent) {
+    this.hoveredBuildingId = b.id;
+    void this.ensureBuildingRooms(b.id);
+    this.buildingHoverStyle = this.computeHoverStyle(
+      (ev?.currentTarget as HTMLElement) ?? null,
+      this.getBuildingRooms(b.id).length === 0 ? { w: 420, h: 120 } : { w: 1180, h: 380 }
+    );
+  }
+
+  onBuildingMouseLeave() {
+    this.hoveredBuildingId = null;
+    this.buildingRoomsLoadingId = null;
+    this.buildingHoverStyle = {};
+  }
+
+  getBuildingRooms(buildingId: number): BuildingRoom[] {
+    return this.buildingRoomsCache.get(buildingId) ?? [];
+  }
+
+  private async ensureBuildingRooms(buildingId: number) {
+    if (!buildingId) return;
+    if (this.buildingRoomsCache.has(buildingId)) return;
+    if (this.buildingRoomsLoadingId === buildingId) return;
+
+    this.buildingRoomsLoadingId = buildingId;
+    try {
+      const res: any = await firstValueFrom(
+        this.floorplanApi.listBuildingRooms(buildingId)
+      );
+      const rooms: BuildingRoom[] =
+        res?.success && Array.isArray(res.rooms)
+          ? res.rooms.map((r: any) => ({
+              id: Number(r.id),
+              room_name: r.room_name,
+              user_id: r.user_id,
+              building_id: Number(r.building_id),
+              cubicles: Number(r.cubicles || 0),
+              itemsAssigned: Number(r.itemsAssigned || 0),
+            }))
+          : [];
+
+      this.buildingRoomsCache.set(buildingId, rooms);
+      for (const r of rooms.slice(0, 6)) {
+        void this.ensureRoomPreview(r.id);
+      }
+    } catch (e) {
+      console.warn('Building rooms hover load failed', buildingId, e);
+      this.buildingRoomsCache.set(buildingId, []);
+    } finally {
+      if (this.buildingRoomsLoadingId === buildingId) {
+        this.buildingRoomsLoadingId = null;
+      }
+    }
+  }
+
+  private slugFromBuildingName(name: string): string {
+    return String(name || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '-');
+  }
+
+  private async loadBuildingsFromApi() {
+    try {
+      const res: any = await firstValueFrom(
+        this.floorplanApi.listBuildings(this.userId ?? undefined)
+      );
+      if (res?.success && Array.isArray(res.buildings)) {
+        this.buildings = res.buildings;
+      } else {
+        this.buildings = [];
+      }
+    } catch (err) {
+      console.error('Failed loading buildings', err);
+      this.buildings = [];
+    }
+  }
+
+  // Preload room lists (and a few thumbnails) so building cards show real previews.
+  private async warmBuildingPreviews() {
+    for (const b of this.buildings) {
+      // fire-and-forget; cache prevents repeats
+      void this.ensureBuildingRooms(b.id);
+    }
+  }
+
+  selectBuilding(b: MstBuilding) {
+    // Ensure any hover panels are closed when navigating.
+    this.hoveredBuildingId = null;
+    this.hoveredRoomId = null;
+    this.activeBuildingId = b.id;
+    void Preferences.set({
+      key: this.KEY_CURRENT_BUILDING,
+      value: String(b.id),
+    });
+    this.showFloorCanvas = false;
+    this.closeToolbox();
+    this.buildingRoomsCache.delete(b.id);
+    void this.loadRoomsForBuilding(b.id);
+  }
+
+  onSeeAllBuildings() {
+    this.buildingSearch = '';
+    this.activeBuildingId = null;
+    this.hoveredBuildingId = null;
+    this.hoveredRoomId = null;
+    this.rooms = [];
+    this.activeRoomId = null;
+    this.showFloorCanvas = false;
+    this.closeToolbox();
+    if (this.inventoryRefreshInterval) {
+      clearInterval(this.inventoryRefreshInterval);
+      this.inventoryRefreshInterval = null;
+    }
+  }
+
+  async openFloorLayoutFromRoom(room: BuildingRoom) {
+    if (!room?.id) return;
+    // Ensure any hover panels are closed when navigating.
+    this.hoveredRoomId = null;
+    this.hoveredBuildingId = null;
+    this.activeRoomId = room.id;
+    await Preferences.set({ key: this.KEY_CURRENT_ROOM_ID, value: String(room.id) });
+    this.showFloorCanvas = true;
+    this.cdr.detectChanges();
+    await this.switchRoom(String(room.id), true);
+  }
+
+  closeFloorLayout() {
+    if (this.inventoryRefreshInterval) {
+      clearInterval(this.inventoryRefreshInterval);
+      this.inventoryRefreshInterval = null;
+    }
+    this.showFloorCanvas = false;
+    this.hoveredRoomId = null;
+    this.hoveredBuildingId = null;
+    this.closeToolbox();
+
+    // If we just edited a room, refresh its quickview + stats when returning.
+    const rid = this.currentNumericRoomId();
+    if (rid != null) {
+      this.roomPreviewCache.delete(rid);
+    }
+    if (this.activeBuildingId != null) {
+      void this.loadRoomsForBuilding(this.activeBuildingId);
+    }
+  }
+
+  get activeRoom(): BuildingRoom | null {
+    return this.rooms.find((r) => r.id === this.activeRoomId) ?? null;
+  }
+
+  async loadRoomsForBuilding(buildingId: number) {
+    this.rooms = [];
+    // Keep existing selection if possible; don't auto-select first room.
+    const prevSelected = this.activeRoomId;
+    try {
+      const res: any = await firstValueFrom(this.floorplanApi.listBuildingRooms(buildingId));
+      if (res?.success && Array.isArray(res.rooms)) {
+        this.rooms = res.rooms.map((r: any) => ({
+          id: Number(r.id),
+          room_name: r.room_name,
+          user_id: r.user_id,
+          building_id: Number(r.building_id),
+          cubicles: Number(r.cubicles || 0),
+          itemsAssigned: Number(r.itemsAssigned || 0),
+        }));
+      } else {
+        this.rooms = [];
+      }
+      this.buildingRoomsCache.set(buildingId, this.rooms);
+      this.activeRoomId =
+        prevSelected != null && this.rooms.some((r) => r.id === prevSelected)
+          ? prevSelected
+          : null;
+
+      // Warm thumbnails so room tiles aren't blank.
+      for (const r of this.rooms.slice(0, 12)) {
+        void this.ensureRoomPreview(r.id);
+      }
+    } catch (e) {
+      console.error('Failed loading building rooms', e);
+      this.rooms = [];
+    }
+  }
+
+  async createRoomInBuilding() {
+    if (this.userId == null) {
+      alert('You must be logged in to add a room.');
+      return;
+    }
+    if (this.activeBuildingId == null) {
+      alert('Select a building first.');
+      return;
+    }
+    const raw = window.prompt('Enter new room name');
+    if (raw == null) return;
+    const name = raw.trim();
+    if (!name) return;
+
+    try {
+      const res: any = await firstValueFrom(
+        this.floorplanApi.createBuildingRoom(this.activeBuildingId, this.userId, name)
+      );
+      if (!res?.success) {
+        alert(res?.error || 'Failed to create room');
+        return;
+      }
+      await this.loadRoomsForBuilding(this.activeBuildingId);
+
+      const rid = res.room?.id;
+      if (rid != null) {
+        this.activeRoomId = Number(rid);
+        await Preferences.set({ key: this.KEY_CURRENT_ROOM_ID, value: String(rid) });
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Failed to create room');
+    }
+  }
+
+  onRoomMouseEnter(room: BuildingRoom, ev?: MouseEvent) {
+    this.hoveredRoomId = room.id;
+    void this.ensureRoomPreview(room.id);
+    this.roomHoverStyle = this.computeHoverStyle(
+      (ev?.currentTarget as HTMLElement) ?? null,
+      { w: 620, h: 380 }
+    );
+  }
+
+  onRoomMouseLeave() {
+    this.hoveredRoomId = null;
+    this.roomPreviewLoadingId = null;
+    this.roomHoverStyle = {};
+  }
+
+  private computeHoverStyle(
+    anchorEl: HTMLElement | null,
+    approxSize: { w: number; h: number }
+  ): Record<string, any> {
+    const margin = 12;
+    const vw = Math.max(320, window.innerWidth || 0);
+    const vh = Math.max(320, window.innerHeight || 0);
+
+    const rect = anchorEl?.getBoundingClientRect?.();
+    const anchorLeft = rect?.left ?? margin;
+    const anchorTop = rect?.top ?? margin;
+    const anchorRight = rect?.right ?? margin + 200;
+
+    // If there is a persistent left sidebar/menu, prevent the hover from being placed under it.
+    const sidebarEl =
+      (document.querySelector('ion-menu') as HTMLElement | null) ??
+      (document.querySelector('.menu') as HTMLElement | null) ??
+      (document.querySelector('.side-menu') as HTMLElement | null) ??
+      (document.querySelector('ion-split-pane') as HTMLElement | null);
+    const sidebarRect = sidebarEl?.getBoundingClientRect?.();
+    // Fallback to known layout (bottom bar uses left: 228px)
+    const sidebarRight =
+      sidebarRect && sidebarRect.width > 40 ? sidebarRect.right : 228;
+
+    // mimic existing positioning: show to the right, slightly overlapping the card
+    let left = anchorRight - 80;
+    let top = anchorTop;
+
+    const panelW = Math.min(approxSize.w, vw - margin * 2);
+    const panelH = Math.min(approxSize.h, vh - margin * 2);
+
+    // If it would overflow right edge, flip to the left side.
+    if (left + panelW > vw - margin) {
+      left = anchorLeft - panelW + 80;
+    }
+
+    // Clamp into viewport.
+    left = Math.max(sidebarRight + margin, Math.min(left, vw - panelW - margin));
+    top = Math.max(margin, Math.min(top, vh - panelH - margin));
+
+    return {
+      position: 'fixed',
+      left: `${Math.round(left)}px`,
+      top: `${Math.round(top)}px`,
+      maxWidth: `calc(100vw - ${margin * 2}px)`,
+      maxHeight: `calc(100vh - ${margin * 2}px)`,
+      zIndex: 1000000,
+    };
+  }
+
+  getRoomPreview(roomId: number): RoomPreview | null {
+    return this.roomPreviewCache.get(roomId) ?? null;
+  }
+
+  getRoomPreviewTransform(roomId: number): string {
+    return this.getRoomPreviewTransformFor(roomId, 360, 220);
+  }
+
+  getRoomPreviewTransformFor(roomId: number, viewportW: number, viewportH: number): string {
+    const p = this.getRoomPreview(roomId);
+    if (!p) return '';
+    const scale = Math.min(viewportW / p.contentW, viewportH / p.contentH, 1);
+    const offsetX = (viewportW - p.contentW * scale) / 2 - p.minX * scale;
+    const offsetY = (viewportH - p.contentH * scale) / 2 - p.minY * scale;
+    return `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
+  }
+
+  getRoomPreviewTransformForPadded(
+    roomId: number,
+    viewportW: number,
+    viewportH: number,
+    pad: number
+  ): string {
+    const innerW = Math.max(1, viewportW - pad * 2);
+    const innerH = Math.max(1, viewportH - pad * 2);
+    const t = this.getRoomPreviewTransformFor(roomId, innerW, innerH);
+    return `translate(${pad}px, ${pad}px) ${t}`;
+  }
+
+  private async ensureRoomPreview(roomId: number) {
+    if (!roomId) return;
+    if (this.roomPreviewCache.has(roomId)) return;
+    if (this.roomPreviewLoadingId === roomId) return;
+
+    this.roomPreviewLoadingId = roomId;
+    try {
+      const res: any = await firstValueFrom(this.floorplanApi.loadFloorplan(String(roomId)));
+      const layout = res?.success && res?.floorplan?.layout ? (res.floorplan.layout as FloorplanLayout) : null;
+      const cubs = Array.isArray(layout?.cubicles) ? layout!.cubicles : [];
+
+      const items: FloorItem[] = cubs.map((c: any) => ({
+        id: Number(c.id ?? Date.now()),
+        type: (c.type || c.itemType || 'cubicle') as FloorItemType,
+        label: c.label || '',
+        x: Number(c.x || 0),
+        y: Number(c.y || 0),
+        w: Number(c.w || 60),
+        h: Number(c.h || 40),
+        color: c.color || this.getDefaultColor((c.type || 'cubicle') as FloorItemType),
+        locked: !!c.locked,
+        createdOrder: Number(c.createdOrder || c.created_order || c.id || 0),
+      }));
+
+      let minX = 0, minY = 0, maxX = 1, maxY = 1;
+      if (items.length) {
+        minX = Math.min(...items.map((i) => i.x));
+        minY = Math.min(...items.map((i) => i.y));
+        maxX = Math.max(...items.map((i) => i.x + i.w));
+        maxY = Math.max(...items.map((i) => i.y + i.h));
+      }
+
+      const contentW = Math.max(1, maxX - minX);
+      const contentH = Math.max(1, maxY - minY);
+
+      this.roomPreviewCache.set(roomId, {
+        roomId,
+        items,
+        minX,
+        minY,
+        contentW,
+        contentH,
+      });
+    } catch (e) {
+      console.warn('Room preview load failed', roomId, e);
+      this.roomPreviewCache.set(roomId, {
+        roomId,
+        items: [],
+        minX: 0,
+        minY: 0,
+        contentW: 1,
+        contentH: 1,
+      });
+    } finally {
+      if (this.roomPreviewLoadingId === roomId) this.roomPreviewLoadingId = null;
+    }
+  }
+
+  private currentNumericRoomId(): number | null {
+    const raw = String(this.roomId || '').trim();
+    if (!/^\d+$/.test(raw)) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  async createBuilding() {
+    const rawName = window.prompt('Enter new building name');
+    if (rawName == null) return;
+    const displayName = rawName.trim();
+    if (!displayName) return;
+    if (this.userId == null) {
+      alert('You must be logged in to add a building.');
+      return;
+    }
+    const slug = this.slugFromBuildingName(displayName);
+    try {
+      const res: any = await firstValueFrom(
+        this.floorplanApi.createBuilding(this.userId, displayName)
+      );
+      if (!res?.success) {
+        alert(res?.error || 'Failed to create building');
+        return;
+      }
+      await this.loadBuildingsFromApi();
+      await this.warmBuildingPreviews();
+      const id = res.building?.id;
+      if (id != null) {
+        this.activeBuildingId = Number(id);
+        await Preferences.set({
+          key: this.KEY_CURRENT_BUILDING,
+          value: String(id),
+        });
+        this.roomId = slug;
+        await Preferences.set({ key: this.KEY_CURRENT_ROOM, value: this.roomId });
+      }
+      if (!res.existing) {
+        // Optional: create a default room inside the new building
+        try {
+          await firstValueFrom(
+            this.floorplanApi.createBuildingRoom(
+              Number(res.building?.id),
+              this.userId as number,
+              'Main'
+            )
+          );
+        } catch (e) {
+          console.warn('Default building room create skipped:', e);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Failed to create building');
+    }
   }
 
   ngOnDestroy() {
@@ -185,82 +708,8 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
     }
   }
 
-  private async loadSavedRooms() {
-    const { value } = await Preferences.get({ key: this.KEY_FLOORPLAN_ROOMS });
-
-    if (!value) {
-      this.rooms = [];
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(value);
-      if (Array.isArray(parsed) && parsed.length) {
-        this.rooms = [...new Set(parsed)];
-      } else {
-        this.rooms = [];
-      }
-    } catch {
-      this.rooms = [];
-    }
-  }
-
-  private async saveRoomsToPreferences() {
-    await Preferences.set({
-      key: this.KEY_FLOORPLAN_ROOMS,
-      value: JSON.stringify(this.rooms)
-    });
-  }
-
-  private async loadRoomsFromDb() {
-    try {
-      const res: any = await firstValueFrom(this.floorplanApi.listRooms(this.userId || undefined));
-      if (res?.success && Array.isArray(res.rooms)) {
-        const dbRooms: string[] = res.rooms
-          .map((row: any) => row.room_name)
-          .filter((roomName: string) => !!roomName);
-
-        this.rooms = [...new Set(dbRooms)];
-        if (this.rooms.length > 0 && !this.roomId) {
-          this.roomId = this.rooms[0];
-        }
-        await this.saveRoomsToPreferences();
-      }
-    } catch (err) {
-      console.error('❌ Failed loading rooms from DB:', err);
-    }
-  }
-
-  async createRoom() {
-    const rawName = window.prompt('Enter new room name');
-    if (!rawName) return;
-
-    const clean = rawName.trim().toLowerCase().replace(/\s+/g, '-');
-    if (!clean) return;
-
-    if (this.rooms.includes(clean)) {
-      alert('Room already exists.');
-      return;
-    }
-
-    this.rooms = [...this.rooms, clean];
-    await this.saveRoomsToPreferences();
-
-    if (this.userId || this.userId === 0) {
-      this.floorplanApi.createRoom(clean, this.userId as number).subscribe({
-        next: async () => await this.switchRoom(clean),
-        error: async (err) => {
-          console.error('❌ Failed creating room:', err);
-          await this.switchRoom(clean);
-        }
-      });
-    } else {
-      await this.switchRoom(clean);
-    }
-  }
-
-  async switchRoom(room: string) {
-    if (this.roomId === room) return;
+  async switchRoom(room: string, forceReload = false) {
+    if (!forceReload && this.roomId === room) return;
 
     // Clear old inventory refresh interval before switching rooms
     if (this.inventoryRefreshInterval) {
@@ -392,34 +841,83 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
   }
 
   toggleToolbox(editBtn?: HTMLElement) {
-    this.toolboxOpen = !this.toolboxOpen;
-    this.isEditMode = this.toolboxOpen;
-
-    if (this.toolboxOpen) {
+    if (!this.toolboxOpen) {
+      // entering edit mode
+      this.toolboxOpen = true;
+      this.isEditMode = true;
+      this.hasUnsavedEdits = false;
+      this.editSnapshot = {
+        floorItems: this.floorItems.map((i) => ({ ...i })),
+        cubicleCount: this.cubicleCount,
+      };
       this.positionToolboxAboveEdit(editBtn);
-    } else {
-      this.paintMode = false;
-      this.addMode = false;
-      this.selectedItemId = null;
+      return;
     }
+
+    // leaving edit mode
+    if (this.hasUnsavedEdits) {
+      const ok = window.confirm(
+        'You have unsaved changes. Newly added/edited items will NOT be saved unless you press Save.\n\nExit edit mode and discard changes?'
+      );
+      if (!ok) return;
+      this.discardEditChanges();
+    }
+
+    this.toolboxOpen = false;
+    this.isEditMode = false;
+    this.paintMode = false;
+    this.addMode = false;
+    this.selectedItemId = null;
+    this.hasUnsavedEdits = false;
+    this.editSnapshot = null;
+    // Reset paint color when exiting edit mode.
+    this.selectedColor = this.getDefaultColor(this.selectedItemType);
   }
 
   closeToolbox() {
+    if (!this.toolboxOpen) return;
+
+    if (this.hasUnsavedEdits) {
+      const ok = window.confirm(
+        'You have unsaved changes. Newly added/edited items will NOT be saved unless you press Save.\n\nExit edit mode and discard changes?'
+      );
+      if (!ok) return;
+      this.discardEditChanges();
+    }
+
     this.toolboxOpen = false;
     this.isEditMode = false;
     this.paintMode = false;
     this.addMode = false;
     this.selectedItemId = null;
+    this.hasUnsavedEdits = false;
+    this.editSnapshot = null;
+    // Reset paint color when exiting edit mode.
+    this.selectedColor = this.getDefaultColor(this.selectedItemType);
   }
 
   async saveEditSettings() {
+    await this.saveFloorplanData();
+
     this.toolboxOpen = false;
     this.isEditMode = false;
     this.paintMode = false;
     this.addMode = false;
     this.selectedItemId = null;
+    this.hasUnsavedEdits = false;
+    this.editSnapshot = null;
+    // Reset paint color when exiting edit mode.
+    this.selectedColor = this.getDefaultColor(this.selectedItemType);
+  }
 
-    await this.saveFloorplanData();
+  private discardEditChanges() {
+    if (!this.editSnapshot) return;
+    this.floorItems = this.editSnapshot.floorItems.map((i) => ({ ...i }));
+    this.cubicleCount = this.editSnapshot.cubicleCount;
+    this.selectedItemId = null;
+    this.paintMode = false;
+    this.addMode = false;
+    this.hasUnsavedEdits = false;
   }
 
   private async saveFloorplanData() {
@@ -427,7 +925,18 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
     const layout: FloorplanLayout = { cubicles: this.floorItems };
 
     this.floorplanApi.saveFloorplan(this.roomId, userId, layout).subscribe({
-      next: (res: any) => console.log('✅ Floorplan saved to DB:', res),
+      next: (res: any) => {
+        console.log('✅ Floorplan saved to DB:', res);
+        const rid = this.currentNumericRoomId();
+        if (rid != null) {
+          // Invalidate cached preview so hover reflects new cubicles.
+          this.roomPreviewCache.delete(rid);
+        }
+        if (this.activeBuildingId != null) {
+          // Refresh room summary stats (cubicles/itemsAssigned).
+          void this.loadRoomsForBuilding(this.activeBuildingId);
+        }
+      },
       error: (err) => console.error('❌ Floorplan save failed:', err)
     });
   }
@@ -493,6 +1002,7 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
   private paintItem(item: FloorItem) {
     item.color = this.selectedColor;
     this.selectedItemId = item.id;
+    this.hasUnsavedEdits = true;
   }
 
   private getNextCreatedOrder(): number {
@@ -509,7 +1019,9 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
       target.closest('.floor-item') ||
       target.closest('.toolbox') ||
       target.closest('.edit-button') ||
-      target.closest('.room-tabs-bar') ||
+      target.closest('.fp-bottom-bar') ||
+      target.closest('.fp-toolbar') ||
+      target.closest('.building-overview') ||
       target.closest('.legend')
     ) {
       return;
@@ -549,7 +1061,7 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
     this.renumberCubicles();
 
     this.selectedItemId = item.id;
-    await this.saveFloorplanData();
+    this.hasUnsavedEdits = true;
   }
 
   onToolboxDragStart(e: PointerEvent) {
@@ -640,7 +1152,7 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
     }
 
     this.renumberCubicles();
-    await this.saveFloorplanData();
+    this.hasUnsavedEdits = true;
   }
 
   onItemPointerDown(e: PointerEvent, item: FloorItem) {
@@ -724,6 +1236,7 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
     window.removeEventListener('pointerup', this.itemUp);
 
     this.dragItemId = null;
+    this.hasUnsavedEdits = true;
   };
 
   onResizeStart(e: PointerEvent, item: FloorItem, direction: ResizeDirection) {
@@ -869,6 +1382,7 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
     this.resizeItemId = null;
     this.resizeDirection = null;
     this.resizeStart = null;
+    this.hasUnsavedEdits = true;
   }
 
   private snap(v: number): number {

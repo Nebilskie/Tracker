@@ -1,280 +1,463 @@
 <ion-content>
-  <div
-    class="list-container"
-    #containerRef
-    [class.painting]="paintMode"
-    [class.adding]="addMode"
-    (click)="onCanvasClick($event)"
-  >
-    <!-- LEGEND -->
-    <div class="legend">
-      <div class="legend-item">
-        <div class="legend-color wall-sample"></div>
-        <span>Wall</span>
+  <div class="fp-page">
+    <!-- Top bar: inventory-style workspace header -->
+    <div class="fp-toolbar" (click)="$event.stopPropagation()">
+      <div class="fp-toolbar-left">
+        <h1 class="fp-title">Floor plan</h1>
+        <span class="fp-subtitle" *ngIf="activeBuilding as ab">
+          {{ ab.building_name }}
+          <span *ngIf="activeRoom as ar">• {{ ar.room_name }}</span>
+        </span>
       </div>
-      <div class="legend-item">
-        <div class="legend-color door-sample"></div>
-        <span>Door</span>
+      <div class="fp-toolbar-right" *ngIf="!showFloorCanvas && !activeBuildingId">
+        <input
+          type="text"
+          class="fp-search"
+          placeholder="Search buildings..."
+          [(ngModel)]="buildingSearch"
+        />
       </div>
-      <div class="legend-item">
-        <div class="legend-color table-sample"></div>
-        <span>Table</span>
-      </div>
-      <div class="legend-item">
-        <div class="legend-color cubicle-sample"></div>
-        <span>Cubicle</span>
-      </div>
-    </div>
-
-    <!-- EDIT BUTTON -->
-    <button
-      #editBtn
-      class="edit-button"
-      type="button"
-      (click)="toggleToolbox(editBtn); $event.stopPropagation()"
-    >
-      + Edit
-    </button>
-
-    <!-- TOOLBOX -->
-    <div
-      class="toolbox"
-      *ngIf="toolboxOpen"
-      [ngStyle]="{ left: toolboxX + 'px', top: toolboxY + 'px' }"
-      (click)="$event.stopPropagation()"
-    >
-      <div class="toolbox-handle" (pointerdown)="onToolboxDragStart($event)">
-        <div class="toolbox-title">Edit Floorplan</div>
-        <button class="toolbox-close" type="button" (click)="closeToolbox()">
-          <ion-icon name="close-outline"></ion-icon>
-        </button>
-      </div>
-
-      <div class="toolbox-body">
-        <div class="tool-section-title">Add item</div>
-
-        <div class="item-type-grid">
-          <button
-            type="button"
-            class="item-type-btn"
-            [class.active]="selectedItemType === 'cubicle'"
-            (click)="setAddItemType('cubicle')"
-          >
-            Cubicle
-          </button>
-
-          <button
-            type="button"
-            class="item-type-btn"
-            [class.active]="selectedItemType === 'wall'"
-            (click)="setAddItemType('wall')"
-          >
-            Wall
-          </button>
-
-          <button
-            type="button"
-            class="item-type-btn"
-            [class.active]="selectedItemType === 'door'"
-            (click)="setAddItemType('door')"
-          >
-            Door
-          </button>
-
-          <button
-            type="button"
-            class="item-type-btn"
-            [class.active]="selectedItemType === 'table'"
-            (click)="setAddItemType('table')"
-          >
-            Table
-          </button>
-        </div>
-
-        <div class="sw-row">
-          <button
-            class="tool-pill"
-            type="button"
-            [class.active]="addMode"
-            (click)="toggleAddMode()"
-          >
-            {{ addMode ? 'Adding…' : 'Add item' }}
-          </button>
-        </div>
-
-        <div class="tool-section-title">Paint</div>
-
-        <div class="swatches">
-          <div class="sw-row">
-            <button
-              class="swatch"
-              type="button"
-              [style.background]="'#9e9e9e'"
-              [class.active]="selectedColor === '#9e9e9e'"
-              (click)="selectColor('#9e9e9e')"
-            ></button>
-
-            <button
-              class="swatch"
-              type="button"
-              [style.background]="'#4caf50'"
-              [class.active]="selectedColor === '#4caf50'"
-              (click)="selectColor('#4caf50')"
-            ></button>
-          </div>
-
-          <div class="sw-row">
-            <button
-              class="swatch"
-              type="button"
-              [style.background]="'#000000'"
-              [class.active]="selectedColor === '#000000'"
-              (click)="selectColor('#000000')"
-            ></button>
-
-            <button
-              class="swatch"
-              type="button"
-              [style.background]="'#f44336'"
-              [class.active]="selectedColor === '#f44336'"
-              (click)="selectColor('#f44336')"
-            ></button>
-          </div>
-
-          <div class="sw-row">
-            <button
-              class="swatch"
-              type="button"
-              [style.background]="'#ff5722'"
-              [class.active]="selectedColor === '#ff5722'"
-              (click)="selectColor('#ff5722')"
-            ></button>
-          </div>
-        </div>
-
+      <div class="fp-toolbar-actions">
         <button
-          class="brush-btn"
+          *ngIf="!showFloorCanvas && activeBuildingId"
           type="button"
-          [class.active]="paintMode"
-          (click)="togglePaintMode()"
+          class="fp-btn fp-btn-secondary"
+          (click)="onSeeAllBuildings()"
         >
-          <ion-icon name="color-fill"></ion-icon>
+          ← Buildings
         </button>
-
-        <div class="delete-hint" *ngIf="isEditMode && selectedItemId">
-          Press <b>Delete</b> or <b>Backspace</b> to remove selected item
-        </div>
-
-        <div class="tool-footer">
-          <button class="save-btn" type="button" (click)="saveEditSettings()">
-            Save
-          </button>
-        </div>
+        <button
+          *ngIf="showFloorCanvas"
+          type="button"
+          class="fp-btn fp-btn-secondary"
+          (click)="closeFloorLayout()"
+        >
+          ← Rooms
+        </button>
+        <button
+          *ngIf="!showFloorCanvas && activeBuildingId"
+          type="button"
+          class="fp-btn fp-btn-primary"
+          (click)="createRoomInBuilding()"
+        >
+          + New Room
+        </button>
       </div>
     </div>
 
-    <!-- ITEMS -->
-    <div
-      class="floor-item"
-      *ngFor="let item of floorItems"
-      [class.editing]="isEditMode"
-      [class.selected]="selectedItemId === item.id"
-      [class.item-wall]="item.type === 'wall'"
-      [class.item-door]="item.type === 'door'"
-      [class.item-table]="item.type === 'table'"
-      [class.item-cubicle]="item.type === 'cubicle'"
-      [ngStyle]="{
-        left: item.x + 'px',
-        top: item.y + 'px',
-        width: item.w + 'px',
-        height: item.h + 'px',
-        background: item.color
-      }"
-      (mouseenter)="onCubicleHover(item.type === 'cubicle' ? item.label : null)"
-      (mouseleave)="onCubicleHover(null)"
-      (click)="selectItem(item.id, $event)"
-      (pointerdown)="onItemPointerDown($event, item)"
-    >
-      <div class="floor-item-label" *ngIf="item.type === 'cubicle'">
-        {{ item.label }}
-      </div>
+    <!-- Building cards (TRACKER-style grid) -->
+    <div class="building-overview" *ngIf="!showFloorCanvas && !activeBuildingId" (click)="$event.stopPropagation()">
+      <div class="building-grid">
+        <div
+          class="building-card"
+          *ngFor="let b of filteredBuildings"
+          [class.selected]="b.id === activeBuildingId"
+          (mouseenter)="onBuildingMouseEnter(b, $event)"
+          (mouseleave)="onBuildingMouseLeave()"
+          (click)="selectBuilding(b)"
+          role="button"
+          tabindex="0"
+          (keyup.enter)="selectBuilding(b)"
+        >
+          <div class="building-card-surface">
+            <div class="building-card-tab">{{ b.building_name }}</div>
+            <div class="building-card-body">
+              <p class="building-card-meta" *ngIf="b.user_id === 'GLOBAL'">Shared location</p>
+              <div class="building-card-rooms" *ngIf="getBuildingRooms(b.id).length > 0">
+                <div class="bc-room" *ngFor="let r of getBuildingRooms(b.id) | slice:0:4">
+                  <div class="bc-room-name">{{ r.room_name }}</div>
+                  <div class="bc-room-viewport">
+                    <div class="bc-room-world" [style.transform]="getRoomPreviewTransformFor(r.id, 110, 64)">
+                      <div
+                        class="bc-room-item"
+                        *ngFor="let it of (getRoomPreview(r.id)?.items || [])"
+                        [ngStyle]="{
+                          left: it.x + 'px',
+                          top: it.y + 'px',
+                          width: it.w + 'px',
+                          height: it.h + 'px',
+                          background: it.color
+                        }"
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
 
-      <div
-        class="cubicle-tooltip"
-        *ngIf="item.type === 'cubicle' && hoveredCubicleLabel === item.label"
+              <div class="building-card-meta" *ngIf="buildingRoomsLoadingId === b.id">
+                Loading rooms…
+              </div>
+              <div class="building-card-meta" *ngIf="buildingRoomsLoadingId !== b.id && getBuildingRooms(b.id).length === 0">
+                No&nbsp;rooms&nbsp;yet
+              </div>
+            </div>
+          </div>
+
+          <div
+            class="building-hover"
+            *ngIf="hoveredBuildingId === b.id"
+            [class.building-hover--compact]="getBuildingRooms(b.id).length === 0"
+            [ngStyle]="buildingHoverStyle"
+            (click)="$event.stopPropagation()"
+          >
+            <div class="building-hover-title">{{ b.building_name }}</div>
+
+            <div class="building-hover-loading" *ngIf="buildingRoomsLoadingId === b.id">
+              Loading rooms…
+            </div>
+
+            <div class="building-hover-empty" *ngIf="buildingRoomsLoadingId !== b.id && getBuildingRooms(b.id).length === 0">
+              No&nbsp;rooms&nbsp;yet
+            </div>
+
+            <div class="building-hover-rooms" *ngIf="getBuildingRooms(b.id).length > 0">
+              <div class="bh-room" *ngFor="let r of getBuildingRooms(b.id) | slice:0:6">
+                <div class="bh-room-name">{{ r.room_name }}</div>
+                <div class="bh-room-preview">
+                  <div class="bh-room-viewport">
+                    <div class="bh-room-world" [style.transform]="getRoomPreviewTransformForPadded(r.id, 420, 300, 22)">
+                      <div
+                        class="bh-room-item"
+                        *ngFor="let it of (getRoomPreview(r.id)?.items || [])"
+                        [class.item-cubicle]="it.type === 'cubicle'"
+                        [ngStyle]="{
+                          left: it.x + 'px',
+                          top: it.y + 'px',
+                          width: it.w + 'px',
+                          height: it.h + 'px',
+                          background: it.color
+                        }"
+                      >
+                        <span *ngIf="it.type === 'cubicle'" class="bh-room-label">{{ it.label }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="bh-room-stats">Cubicles: {{ r.cubicles || 0 }}</div>
+              </div>
+            </div>
+
+            <div class="building-hover-foot" *ngIf="getBuildingRooms(b.id).length > 6">
+              +{{ getBuildingRooms(b.id).length - 6 }} more rooms…
+            </div>
+          </div>
+        </div>
+        <p *ngIf="filteredBuildings.length === 0" class="building-empty">
+          No buildings to show. Add one with <b>New Building</b> below.
+        </p>
+      </div>
+    </div>
+
+    <!-- Rooms inside selected building -->
+    <div class="rooms-overview" *ngIf="!showFloorCanvas && activeBuildingId" (click)="$event.stopPropagation()">
+      <div class="rooms-grid">
+        <div
+          class="room-tile"
+          *ngFor="let r of rooms"
+          [class.active]="r.id === activeRoomId"
+          (mouseenter)="onRoomMouseEnter(r, $event)"
+          (mouseleave)="onRoomMouseLeave()"
+          (click)="openFloorLayoutFromRoom(r)"
+          role="button"
+          tabindex="0"
+          (keyup.enter)="openFloorLayoutFromRoom(r)"
+        >
+          <div class="room-tile-surface">
+            <div class="room-tile-label">{{ r.room_name }}</div>
+
+            <div class="room-tile-preview">
+              <div class="room-tile-viewport">
+                <div class="room-tile-world" [style.transform]="getRoomPreviewTransformFor(r.id, 140, 86)">
+                  <div
+                    class="room-tile-item"
+                    *ngFor="let it of (getRoomPreview(r.id)?.items || [])"
+                    [ngStyle]="{
+                      left: it.x + 'px',
+                      top: it.y + 'px',
+                      width: it.w + 'px',
+                      height: it.h + 'px',
+                      background: it.color
+                    }"
+                  ></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="room-hover" *ngIf="hoveredRoomId === r.id" [ngStyle]="roomHoverStyle">
+            <div class="room-hover-header">
+              <div class="room-hover-title">{{ r.room_name }}</div>
+              <div class="room-hover-stats">
+                <span><b>Cubicles</b>: {{ r.cubicles || 0 }}</span>
+                <span><b>Assigned</b>: {{ r.itemsAssigned || 0 }}</span>
+              </div>
+            </div>
+
+            <div class="room-preview">
+              <div class="room-preview-viewport">
+                <div
+                  class="room-preview-world"
+                  [style.transform]="getRoomPreviewTransformFor(r.id, 520, 300)"
+                >
+                  <div
+                    class="room-preview-item"
+                    *ngFor="let it of (getRoomPreview(r.id)?.items || [])"
+                    [class.item-wall]="it.type === 'wall'"
+                    [class.item-door]="it.type === 'door'"
+                    [class.item-table]="it.type === 'table'"
+                    [class.item-cubicle]="it.type === 'cubicle'"
+                    [ngStyle]="{
+                      left: it.x + 'px',
+                      top: it.y + 'px',
+                      width: it.w + 'px',
+                      height: it.h + 'px',
+                      background: it.color
+                    }"
+                  >
+                    <span *ngIf="it.type === 'cubicle'" class="room-preview-label">{{ it.label }}</span>
+                  </div>
+                </div>
+
+                <div class="room-preview-loading" *ngIf="roomPreviewLoadingId === r.id">
+                  Loading preview…
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <div class="room-tile room-tile-add" (click)="createRoomInBuilding()" role="button" tabindex="0" (keyup.enter)="createRoomInBuilding()">
+          <div class="room-tile-add-plus">+</div>
+          <div class="room-tile-add-text">New Room</div>
+        </div>
+
+        <p *ngIf="rooms.length === 0" class="rooms-empty">
+          No rooms yet. Create one with <b>+ New Room</b>.
+        </p>
+      </div>
+    </div>
+
+    <!-- Floor editor canvas -->
+    <div
+      class="floor-canvas-wrap"
+      #containerRef
+      *ngIf="showFloorCanvas"
+      [class.painting]="paintMode"
+      [class.adding]="addMode"
+      (click)="onCanvasClick($event)"
+    >
+
+      <button
+        #editBtn
+        class="edit-button"
+        type="button"
+        (click)="toggleToolbox(editBtn); $event.stopPropagation()"
       >
-        <div *ngFor="let line of getInventoryTooltipLines(item.label)">
-          {{ line }}
+        + Edit
+      </button>
+
+      <div
+        class="toolbox"
+        *ngIf="toolboxOpen"
+        [ngStyle]="{ left: toolboxX + 'px', top: toolboxY + 'px' }"
+        (click)="$event.stopPropagation()"
+      >
+        <div class="toolbox-handle" (pointerdown)="onToolboxDragStart($event)">
+          <div class="toolbox-title">Edit Floorplan</div>
+          <button class="toolbox-close" type="button" (click)="closeToolbox()">
+            <ion-icon name="close-outline"></ion-icon>
+          </button>
+        </div>
+
+        <div class="toolbox-body">
+          <div class="tool-section-title">Add item</div>
+
+          <div class="item-type-grid">
+            <button
+              type="button"
+              class="item-type-btn"
+              [class.active]="selectedItemType === 'cubicle'"
+              (click)="setAddItemType('cubicle')"
+            >
+              Cubicle
+            </button>
+
+            <button
+              type="button"
+              class="item-type-btn"
+              [class.active]="selectedItemType === 'wall'"
+              (click)="setAddItemType('wall')"
+            >
+              Wall
+            </button>
+
+            <button
+              type="button"
+              class="item-type-btn"
+              [class.active]="selectedItemType === 'door'"
+              (click)="setAddItemType('door')"
+            >
+              Door
+            </button>
+
+            <button
+              type="button"
+              class="item-type-btn"
+              [class.active]="selectedItemType === 'table'"
+              (click)="setAddItemType('table')"
+            >
+              Table
+            </button>
+          </div>
+
+          <div class="sw-row">
+            <button
+              class="tool-pill"
+              type="button"
+              [class.active]="addMode"
+              (click)="toggleAddMode()"
+            >
+              {{ addMode ? 'Adding…' : 'Add item' }}
+            </button>
+          </div>
+
+          <div class="tool-section-title">Paint</div>
+
+          <div class="color-wheel-row">
+            <input
+              class="color-wheel"
+              type="color"
+              [value]="selectedColor"
+              (input)="selectColor($any($event.target).value)"
+            />
+            <div class="color-wheel-value">{{ selectedColor }}</div>
+          </div>
+
+          <button
+            class="brush-btn"
+            type="button"
+            [class.active]="paintMode"
+            (click)="togglePaintMode()"
+          >
+            <ion-icon name="color-fill"></ion-icon>
+          </button>
+
+          <div class="delete-hint" *ngIf="isEditMode && selectedItemId">
+            Press <b>Delete</b> or <b>Backspace</b> to remove selected item
+          </div>
+
+          <div class="tool-footer">
+            <button class="save-btn" type="button" (click)="saveEditSettings()">
+              Save
+            </button>
+          </div>
         </div>
       </div>
 
-      <!-- RESIZE HANDLES -->
       <div
-        *ngIf="isEditMode && selectedItemId === item.id"
-        class="resize-handle top"
-        (pointerdown)="onResizeStart($event, item, 'top')"
-      ></div>
+        class="floor-item"
+        *ngFor="let item of floorItems"
+        [class.editing]="isEditMode"
+        [class.selected]="selectedItemId === item.id"
+        [class.item-wall]="item.type === 'wall'"
+        [class.item-door]="item.type === 'door'"
+        [class.item-table]="item.type === 'table'"
+        [class.item-cubicle]="item.type === 'cubicle'"
+        [ngStyle]="{
+          left: item.x + 'px',
+          top: item.y + 'px',
+          width: item.w + 'px',
+          height: item.h + 'px',
+          background: item.color
+        }"
+        (mouseenter)="onCubicleHover(item.type === 'cubicle' ? item.label : null)"
+        (mouseleave)="onCubicleHover(null)"
+        (click)="selectItem(item.id, $event)"
+        (pointerdown)="onItemPointerDown($event, item)"
+      >
+        <div class="floor-item-label" *ngIf="item.type === 'cubicle'">
+          {{ item.label }}
+        </div>
 
-      <div
-        *ngIf="isEditMode && selectedItemId === item.id"
-        class="resize-handle bottom"
-        (pointerdown)="onResizeStart($event, item, 'bottom')"
-      ></div>
+        <div
+          class="cubicle-tooltip"
+          *ngIf="item.type === 'cubicle' && hoveredCubicleLabel === item.label"
+        >
+          <div *ngFor="let line of getInventoryTooltipLines(item.label)">
+            {{ line }}
+          </div>
+        </div>
 
-      <div
-        *ngIf="isEditMode && selectedItemId === item.id"
-        class="resize-handle left"
-        (pointerdown)="onResizeStart($event, item, 'left')"
-      ></div>
+        <div
+          *ngIf="isEditMode && selectedItemId === item.id"
+          class="resize-handle top"
+          (pointerdown)="onResizeStart($event, item, 'top')"
+        ></div>
 
-      <div
-        *ngIf="isEditMode && selectedItemId === item.id"
-        class="resize-handle right"
-        (pointerdown)="onResizeStart($event, item, 'right')"
-      ></div>
+        <div
+          *ngIf="isEditMode && selectedItemId === item.id"
+          class="resize-handle bottom"
+          (pointerdown)="onResizeStart($event, item, 'bottom')"
+        ></div>
 
-      <div
-        *ngIf="isEditMode && selectedItemId === item.id"
-        class="resize-handle top-left"
-        (pointerdown)="onResizeStart($event, item, 'top-left')"
-      ></div>
+        <div
+          *ngIf="isEditMode && selectedItemId === item.id"
+          class="resize-handle left"
+          (pointerdown)="onResizeStart($event, item, 'left')"
+        ></div>
 
-      <div
-        *ngIf="isEditMode && selectedItemId === item.id"
-        class="resize-handle top-right"
-        (pointerdown)="onResizeStart($event, item, 'top-right')"
-      ></div>
+        <div
+          *ngIf="isEditMode && selectedItemId === item.id"
+          class="resize-handle right"
+          (pointerdown)="onResizeStart($event, item, 'right')"
+        ></div>
 
-      <div
-        *ngIf="isEditMode && selectedItemId === item.id"
-        class="resize-handle bottom-left"
-        (pointerdown)="onResizeStart($event, item, 'bottom-left')"
-      ></div>
+        <div
+          *ngIf="isEditMode && selectedItemId === item.id"
+          class="resize-handle top-left"
+          (pointerdown)="onResizeStart($event, item, 'top-left')"
+        ></div>
 
-      <div
-        *ngIf="isEditMode && selectedItemId === item.id"
-        class="resize-handle bottom-right"
-        (pointerdown)="onResizeStart($event, item, 'bottom-right')"
-      ></div>
+        <div
+          *ngIf="isEditMode && selectedItemId === item.id"
+          class="resize-handle top-right"
+          (pointerdown)="onResizeStart($event, item, 'top-right')"
+        ></div>
+
+        <div
+          *ngIf="isEditMode && selectedItemId === item.id"
+          class="resize-handle bottom-left"
+          (pointerdown)="onResizeStart($event, item, 'bottom-left')"
+        ></div>
+
+        <div
+          *ngIf="isEditMode && selectedItemId === item.id"
+          class="resize-handle bottom-right"
+          (pointerdown)="onResizeStart($event, item, 'bottom-right')"
+        ></div>
+      </div>
     </div>
 
-    <!-- BOTTOM ROOM TABS -->
-    <div class="room-tabs-bar" (click)="$event.stopPropagation()">
-      <div class="room-tabs-scroll">
+    <!-- Bottom: buildings from mst_building + add -->
+    <div class="fp-bottom-bar" (click)="$event.stopPropagation()">
+      <button type="button" class="fp-see-all" (click)="onSeeAllBuildings()">
+        See all
+      </button>
+      <div class="fp-tabs-scroll">
         <button
           type="button"
-          class="room-tab"
-          *ngFor="let room of rooms"
-          [class.active]="room === roomId"
-          (click)="switchRoom(room)"
+          class="fp-tab"
+          *ngFor="let b of buildings"
+          [class.active]="b.id === activeBuildingId"
+          (click)="selectBuilding(b)"
         >
-          {{ room }}
+          {{ b.building_name }}
         </button>
       </div>
-
-      <button type="button" class="add-room-btn" (click)="createRoom()">
+      <button type="button" class="fp-add-building" (click)="createBuilding()">
         <ion-icon name="add-outline"></ion-icon>
-        New Room
+        New Building
       </button>
     </div>
   </div>

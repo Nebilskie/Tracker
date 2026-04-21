@@ -36,4 +36,30 @@ export class FloorplanApiService {
   getFloorplanInventory(roomId: string): Observable<any> {
     return this.http.get(`${this.baseUrl}/floorplan-inventory?roomId=${encodeURIComponent(roomId)}`);
   }
+
+  listBuildings(userId?: number): Observable<any> {
+    const qp =
+      userId !== undefined && userId !== null
+        ? `?userId=${encodeURIComponent(String(userId))}`
+        : '';
+    return this.http.get(`${this.baseUrl}/api/buildings${qp}`);
+  }
+
+  createBuilding(userId: number, building_name: string): Observable<any> {
+    return this.http.post(`${this.baseUrl}/api/buildings`, {
+      userId,
+      building_name,
+    });
+  }
+
+  listBuildingRooms(buildingId: number): Observable<any> {
+    return this.http.get(`${this.baseUrl}/api/buildings/${encodeURIComponent(String(buildingId))}/rooms`);
+  }
+
+  createBuildingRoom(buildingId: number, userId: number, room_name: string): Observable<any> {
+    return this.http.post(`${this.baseUrl}/api/buildings/${encodeURIComponent(String(buildingId))}/rooms`, {
+      userId,
+      room_name,
+    });
+  }
 }

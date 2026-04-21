@@ -83,6 +83,21 @@ export class ItInventoryPage implements OnInit {
     return type.charAt(0).toUpperCase() + type.slice(1);
   }
 
+  get isSummaryView(): boolean {
+    return !this.assetType;
+  }
+
+  /** From the All Inventory summary, drill into that category's items (matches toolbar filter + detail table). */
+  openCategory(row: Record<string, any>) {
+    const raw = String(row['name'] ?? '').trim();
+    if (!raw) return;
+    const match =
+      this.assetTypes.find((t) => t.toLowerCase() === raw.toLowerCase()) ?? raw;
+    this.assetType = match;
+    this.searchTerm = '';
+    this.loadAssetData();
+  }
+
   loadAssetDataManual() {
     this.loadAssetData();
   }

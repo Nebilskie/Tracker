@@ -229,6 +229,46 @@ async function initializeTables() {
       "INSERT IGNORE INTO mst_building (user_id, building_name) VALUES ('GLOBAL', 'storage')"
     );
 
+    // ---- rooms belong to buildings (mst_room.building_id) ----
+    // Add building_id column if missing
+    try {
+      const [buildingIdCol] = await conn.query("SHOW COLUMNS FROM mst_room LIKE 'building_id'");
+      if (!buildingIdCol.length) {
+        await conn.query("ALTER TABLE mst_room ADD COLUMN building_id INT NULL AFTER user_id");
+      }
+    } catch (e) {
+      console.warn("⚠️ mst_room building_id migration skipped:", e?.message || e);
+    }
+
+    // Prefer uniqueness scoped to building + user (allow same room name in different buildings)
+    try {
+      // Drop legacy unique key if present and replace with scoped unique
+      const [idx] = await conn.query("SHOW INDEX FROM mst_room WHERE Key_name = 'uniq_user_room_name'");
+      if (idx.length) {
+        await conn.query("ALTER TABLE mst_room DROP INDEX uniq_user_room_name");
+      }
+      const [scopedIdx] = await conn.query("SHOW INDEX FROM mst_room WHERE Key_name = 'uniq_user_building_room_name'");
+      if (!scopedIdx.length) {
+        await conn.query("ALTER TABLE mst_room ADD UNIQUE KEY uniq_user_building_room_name (user_id, building_id, room_name)");
+      }
+    } catch (e) {
+      console.warn("⚠️ mst_room unique index migration skipped:", e?.message || e);
+    }
+
+    // Best-effort foreign key (may fail if existing data is inconsistent)
+    try {
+      const [fk] = await conn.query(
+        "SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mst_room' AND COLUMN_NAME = 'building_id' AND REFERENCED_TABLE_NAME = 'mst_building' LIMIT 1"
+      );
+      if (!fk.length) {
+        await conn.query(
+          "ALTER TABLE mst_room ADD CONSTRAINT fk_mst_room_building FOREIGN KEY (building_id) REFERENCES mst_building(id) ON DELETE SET NULL"
+        );
+      }
+    } catch (e) {
+      console.warn("⚠️ mst_room building FK migration skipped:", e?.message || e);
+    }
+
     // ---- migrate legacy table name floorplans/cubicles -> mst_cubicles ----
     try {
       const [floorplanTables] = await conn.query("SHOW TABLES LIKE 'floorplans'");
@@ -1165,6 +1205,156 @@ app.get("/floorplan-inventory", async (req,res)=>{
 // Inventory summary endpoint removed per request
 
 
+
+/* =========================
+   BUILDINGS (mst_building)
+========================= */
+app.get("/api/buildings", async (req, res) => {
+  try {
+    const userId = req.query.userId;
+    let q =
+      "SELECT id, user_id, building_name, created_at FROM mst_building WHERE 1=1";
+    const params = [];
+    if (userId !== undefined && userId !== null && String(userId).trim() !== "") {
+      q += " AND (user_id = ? OR user_id = 'GLOBAL')";
+      params.push(String(userId));
+    } else {
+      q += " AND user_id = 'GLOBAL'";
+    }
+    q += " ORDER BY (user_id = 'GLOBAL') ASC, building_name ASC";
+    const [rows] = await pool.query(q, params);
+    res.json({ success: true, buildings: rows });
+  } catch (e) {
+    console.error("❌ /api/buildings GET error:", e);
+    res.status(500).json({ success: false, error: "Server error listing buildings" });
+  }
+});
+
+app.post("/api/buildings", async (req, res) => {
+  const { userId, building_name } = req.body || {};
+  if (userId === undefined || userId === null || String(userId).trim() === "") {
+    return res
+      .status(400)
+      .json({ success: false, error: "userId required" });
+  }
+  const name = String(building_name || "").trim();
+  if (!name) {
+    return res
+      .status(400)
+      .json({ success: false, error: "building_name required" });
+  }
+  const uid = String(userId);
+  const conn = await pool.getConnection();
+  try {
+    const [existing] = await conn.query(
+      "SELECT id, user_id, building_name FROM mst_building WHERE user_id = ? AND LOWER(TRIM(building_name)) = LOWER(TRIM(?)) LIMIT 1",
+      [uid, name]
+    );
+    if (existing.length) {
+      return res.json({
+        success: true,
+        building: existing[0],
+        existing: true,
+      });
+    }
+    const [result] = await conn.query(
+      "INSERT INTO mst_building (user_id, building_name) VALUES (?, ?)",
+      [uid, name]
+    );
+    res.json({
+      success: true,
+      building: {
+        id: result.insertId,
+        user_id: uid,
+        building_name: name,
+      },
+    });
+  } catch (e) {
+    console.error("❌ /api/buildings POST error:", e);
+    res.status(500).json({ success: false, error: "Server error creating building" });
+  } finally {
+    conn.release();
+  }
+});
+
+/* =========================
+   BUILDING ROOMS (mst_room)
+========================= */
+app.get("/api/buildings/:buildingId/rooms", async (req, res) => {
+  const buildingId = Number(req.params.buildingId);
+  if (!Number.isFinite(buildingId) || buildingId <= 0) {
+    return res.status(400).json({ success: false, error: "Invalid buildingId" });
+  }
+
+  try {
+    // Quick preview stats:
+    // - cubicles: count of mst_cubicles rows with item_type='cubicle'
+    // - itemsAssigned: count of mst_item rows assigned to that room
+    const [rows] = await pool.query(
+      `
+      SELECT
+        r.id,
+        r.room_name,
+        r.user_id,
+        r.building_id,
+        COUNT(DISTINCT CASE WHEN c.item_type = 'cubicle' THEN c.id END) AS cubicles,
+        COUNT(DISTINCT i.id) AS itemsAssigned
+      FROM mst_room r
+      LEFT JOIN mst_cubicles c ON c.room_id = r.id
+      LEFT JOIN mst_item i ON i.room_id = r.id
+      WHERE r.building_id = ?
+      GROUP BY r.id, r.room_name, r.user_id, r.building_id
+      ORDER BY r.room_name ASC
+      `,
+      [buildingId]
+    );
+    return res.json({ success: true, rooms: rows });
+  } catch (e) {
+    console.error("❌ /api/buildings/:buildingId/rooms GET error:", e);
+    return res.status(500).json({ success: false, error: "Server error listing rooms" });
+  }
+});
+
+app.post("/api/buildings/:buildingId/rooms", async (req, res) => {
+  const buildingId = Number(req.params.buildingId);
+  const { userId, room_name } = req.body || {};
+
+  if (!Number.isFinite(buildingId) || buildingId <= 0) {
+    return res.status(400).json({ success: false, error: "Invalid buildingId" });
+  }
+  if (userId === undefined || userId === null || String(userId).trim() === "") {
+    return res.status(400).json({ success: false, error: "userId required" });
+  }
+  const name = String(room_name || "").trim();
+  if (!name) return res.status(400).json({ success: false, error: "room_name required" });
+
+  const uid = String(userId);
+  const conn = await pool.getConnection();
+  try {
+    const [existing] = await conn.query(
+      "SELECT id, room_name, user_id, building_id FROM mst_room WHERE user_id = ? AND building_id = ? AND LOWER(TRIM(room_name)) = LOWER(TRIM(?)) LIMIT 1",
+      [uid, buildingId, name]
+    );
+    if (existing.length) {
+      return res.json({ success: true, room: existing[0], existing: true });
+    }
+
+    const [result] = await conn.query(
+      "INSERT INTO mst_room (user_id, building_id, room_name) VALUES (?,?,?)",
+      [uid, buildingId, name]
+    );
+
+    return res.json({
+      success: true,
+      room: { id: result.insertId, user_id: uid, building_id: buildingId, room_name: name },
+    });
+  } catch (e) {
+    console.error("❌ /api/buildings/:buildingId/rooms POST error:", e);
+    return res.status(500).json({ success: false, error: "Server error creating room" });
+  } finally {
+    conn.release();
+  }
+});
 
 /* =========================
    BRANDS (MASTER)
