@@ -441,7 +441,12 @@
 
     <!-- Bottom: buildings from mst_building + add -->
     <div class="fp-bottom-bar" (click)="$event.stopPropagation()">
-      <button type="button" class="fp-see-all" (click)="onSeeAllBuildings()">
+      <button
+        type="button"
+        class="fp-see-all"
+        [class.active]="!activeBuildingId"
+        (click)="onSeeAllBuildings()"
+      >
         See all
       </button>
       <div class="fp-tabs-scroll">

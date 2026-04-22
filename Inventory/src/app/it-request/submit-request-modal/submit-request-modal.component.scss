@@ -14,6 +14,38 @@
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
 }
 
+/* Ionic select/ion-item can render a default highlight/backdrop that looks like a faint square.
+   Force a clean, plain surface inside this modal. */
+.select-item {
+  --background: transparent;
+  --inner-border-width: 0px;
+  --highlight-height: 0px;
+  --highlight-color-focused: transparent;
+  --highlight-color-valid: transparent;
+  --highlight-color-invalid: transparent;
+  --ripple-color: transparent;
+  --min-height: 44px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+}
+
+.select-item::part(native) {
+  background: transparent;
+}
+
+.select-item::part(detail-icon) {
+  opacity: 0.7;
+}
+
+ion-select::part(container),
+ion-select::part(text) {
+  background: transparent;
+}
+
+ion-select {
+  width: 100%;
+}
+
 .modal-header {
   padding: 24px 20px;
   border-bottom: 1px solid #f0f0f0;

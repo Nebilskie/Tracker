@@ -196,33 +196,13 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
     const { value: savedBid } = await Preferences.get({
       key: this.KEY_CURRENT_BUILDING,
     });
-    if (savedBid) {
-      const id = Number(savedBid);
-      if (!Number.isNaN(id) && this.buildings.some((b) => b.id === id)) {
-        this.activeBuildingId = id;
-      }
-    }
-    if (this.activeBuildingId == null && this.buildings.length) {
-      this.activeBuildingId = this.buildings[0].id;
-    }
-
-    // Load rooms for current building
-    if (this.activeBuildingId != null) {
-      await this.loadRoomsForBuilding(this.activeBuildingId);
-
-      const { value: savedRoomId } = await Preferences.get({
-        key: this.KEY_CURRENT_ROOM_ID,
-      });
-      if (savedRoomId) {
-        const rid = Number(savedRoomId);
-        if (!Number.isNaN(rid) && this.rooms.some((r) => r.id === rid)) {
-          this.activeRoomId = rid;
-        }
-      }
-      if (this.activeRoomId == null && this.rooms.length) {
-        this.activeRoomId = this.rooms[0].id;
-      }
-    }
+    // Default to the "See all" (buildings overview) view on page load.
+    // We still keep the saved building id in Preferences so a future change can opt back into restoring it,
+    // but the initial screen should always be the buildings overview.
+    void savedBid;
+    this.activeBuildingId = null;
+    this.activeRoomId = null;
+    this.rooms = [];
 
     window.addEventListener('keydown', this.handleKeyDelete);
   }

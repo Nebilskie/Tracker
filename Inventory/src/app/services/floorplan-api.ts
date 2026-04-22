@@ -62,4 +62,8 @@ export class FloorplanApiService {
       room_name,
     });
   }
+
+  listItemTypes(): Observable<any> {
+    return this.http.get(`${this.baseUrl}/api/items/types`);
+  }
 }

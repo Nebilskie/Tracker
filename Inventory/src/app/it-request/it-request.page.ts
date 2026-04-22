@@ -1,6 +1,5 @@
 import { Component, OnInit } from '@angular/core';
 import { ItRequestService } from '../services/it-request.service';
-import { FloorplanApiService } from '../services/floorplan-api';
 import { ModalController, AlertController } from '@ionic/angular';
 import { SubmitRequestModalComponent } from './submit-request-modal/submit-request-modal.component';
 
@@ -44,69 +43,16 @@ export class ItRequestPage implements OnInit {
   selectedRequest: RequestItem | null = null;
   showDetailModal = false;
   currentUser: UserData | null = null;
-    floorplanRows: Array<{ room_id?: string; label?: string }> = [];
-  roomOptions: string[] = [];
-  cubicleOptions: string[] = [];
 
   constructor(
     private itRequestService: ItRequestService,
-    private floorplanApi: FloorplanApiService,
     private modalController: ModalController,
     private alertController: AlertController
   ) {}
 
   ngOnInit() {
     this.loadCurrentUser();
-    this.loadFloorplanData();
     this.loadRequests();
-  }
-
-  loadFloorplanData() {
-    this.floorplanApi.listFloorplans().subscribe(
-      (response: any) => {
-        if (response?.success && Array.isArray(response.floorplans)) {
-          this.floorplanRows = response.floorplans.map((item: any) => ({
-            room_id: item.room_id,
-            label: item.label
-          }));
-
-          this.roomOptions = [...new Set(
-            this.floorplanRows
-              .map((fp) => fp.room_id)
-              .filter((roomId): roomId is string => typeof roomId === 'string' && roomId.trim().length > 0)
-          )];
-
-          if (this.roomOptions.length) {
-            this.cubicleOptions = this.getCubicleOptionsForRoom(this.roomOptions[0]);
-          } else {
-            this.cubicleOptions = [];
-          }
-        } else {
-          this.floorplanRows = [];
-          this.roomOptions = [];
-          this.cubicleOptions = [];
-        }
-      },
-      (error) => {
-        console.error('Error loading floorplans for room/cubicle dropdown:', error);
-        this.floorplanRows = [];
-        this.roomOptions = [];
-        this.cubicleOptions = [];
-      }
-    );
-  }
-
-  getCubicleOptionsForRoom(roomId: string): string[] {
-    if (!roomId) {
-      return [];
-    }
-
-    return [...new Set(
-      this.floorplanRows
-        .filter((fp) => fp.room_id === roomId && fp.label && fp.label !== '__ROOM__')
-        .map((fp) => (fp.label || '').trim())
-        .filter((label): label is string => !!label)
-    )];
   }
 
   loadCurrentUser() {
@@ -262,10 +208,6 @@ export class ItRequestPage implements OnInit {
       component: SubmitRequestModalComponent,
       cssClass: 'request-modal-container',
       presentingElement: await this.modalController.getTop(),
-      componentProps: {
-        roomOptions: this.roomOptions,
-        floorplanRows: this.floorplanRows
-      }
     });
 
     await modal.present();
@@ -274,7 +216,7 @@ export class ItRequestPage implements OnInit {
 
     if (data && data.roomId && data.cubicleNumber && data.peripheral) {
       this.submitRequest(
-        `${data.peripheral} for Cubicle ${data.cubicleNumber} in Room ${data.roomId}`,
+        `${data.peripheral} for Cubicle ${data.cubicleNumber} in Room ${data.roomName || data.roomId}${data.buildingName ? ` (${data.buildingName})` : ''}`,
         data.reason || ''
       );
     }
