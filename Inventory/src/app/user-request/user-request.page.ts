@@ -153,6 +153,14 @@ export class UserRequestPage implements OnInit {
 
   mapStatus(dbStatus: string): RequestItem['status'] {
     switch (dbStatus) {
+      case 'N':
+        return 'new';
+      case 'I':
+        return 'inprogress';
+      case 'C':
+        return 'completed';
+      case 'R':
+        return 'rejected';
       case 'new':
         return 'new';
       case 'inprogress':
@@ -214,7 +222,7 @@ export class UserRequestPage implements OnInit {
     const modal = await this.modalController.create({
       component: SubmitRequestModalComponent,
       cssClass: 'request-modal-container',
-      presentingElement: await this.modalController.getTop(),
+      showBackdrop: false,
       componentProps: {
         roomOptions: this.roomOptions,
         floorplanRows: this.floorplanRows

@@ -1571,6 +1571,98 @@ app.get('/api/inventory/summary', async (_req, res) => {
 });
 
 /* =========================
+   IT REQUESTS (LIST + CREATE)
+========================= */
+function statusCodeToLabel(code) {
+  const raw = code == null ? '' : String(code).trim();
+  const upper = raw.toUpperCase();
+  if (upper === 'N') return 'new';
+  if (upper === 'I') return 'inprogress';
+  if (upper === 'C') return 'completed';
+  if (upper === 'R') return 'rejected';
+
+  const compact = raw.toLowerCase().replace(/[\s_-]+/g, '');
+  if (compact === 'new') return 'new';
+  if (compact === 'inprogress') return 'inprogress';
+  if (compact === 'completed') return 'completed';
+  if (compact === 'rejected') return 'rejected';
+  return 'new';
+}
+
+app.get('/api/it-requests', async (_req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    const [rows] = await conn.query(
+      `SELECT id, user_id, username, request_text, reason, status,
+              created_at, updated_at, inprogress_at, completed_at, rejected_at, rejected_from,
+              inventory_table, inventory_item_id, inventory_item_name, previous_inventory_item_name
+         FROM requests
+        ORDER BY created_at DESC, id DESC`
+    );
+
+    const requests = (rows || []).map((r) => ({
+      id: r.id,
+      user_id: r.user_id,
+      username: r.username,
+      request_text: r.request_text,
+      reason: r.reason,
+      status: statusCodeToLabel(r.status),
+      created_at: r.created_at,
+      updated_at: r.updated_at,
+      inprogress_at: r.inprogress_at,
+      completed_at: r.completed_at,
+      rejected_at: r.rejected_at,
+      rejected_from: r.rejected_from,
+      inventory_table: r.inventory_table,
+      inventory_item_id: r.inventory_item_id,
+      inventory_item_name: r.inventory_item_name,
+      previous_inventory_item_name: r.previous_inventory_item_name,
+    }));
+
+    res.json({ success: true, requests });
+  } catch (e) {
+    console.error('❌ /api/it-requests GET error', e);
+    res.status(500).json({ success: false, error: e.message || 'Server error' });
+  } finally {
+    conn.release();
+  }
+});
+
+app.post('/api/it-requests', async (req, res) => {
+  const userId = req.body?.userId ?? req.body?.user_id ?? null;
+  const username = String(req.body?.username || '').trim();
+  const requestText = String(req.body?.requestText || req.body?.request_text || '').trim();
+  const reason = String(req.body?.reason || '').trim();
+
+  if (!username) {
+    return res.status(400).json({ success: false, error: 'username is required' });
+  }
+
+  if (!requestText) {
+    return res.status(400).json({ success: false, error: 'requestText is required' });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    const uid = userId == null || userId === '' ? null : Number(userId);
+    const safeUid = Number.isFinite(uid) ? uid : null;
+
+    const [result] = await conn.query(
+      `INSERT INTO requests (user_id, username, request_text, reason, status)
+       VALUES (?, ?, ?, ?, 'N')`,
+      [safeUid, username, requestText, reason || null]
+    );
+
+    res.json({ success: true, id: result?.insertId });
+  } catch (e) {
+    console.error('❌ /api/it-requests POST error', e);
+    res.status(500).json({ success: false, error: e.message || 'Database error' });
+  } finally {
+    conn.release();
+  }
+});
+
+/* =========================
    UPDATE REQUEST STATUS
 ========================= */
 app.put('/api/it-requests/:id', async (req, res) => {

@@ -7,11 +7,16 @@
 }
 
 .modal-content {
-  min-width: 420px;
+  min-width: min(420px, 92vw);
   background: white;
   border-radius: 12px;
   overflow: visible;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  box-shadow: none;
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  /* Ensure footer buttons are reachable on small viewports */
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Ionic select/ion-item can render a default highlight/backdrop that looks like a faint square.
@@ -87,6 +92,7 @@ ion-select {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  overflow: auto;
 }
 
 .form-group {
@@ -139,6 +145,7 @@ ion-select {
   gap: 12px;
   justify-content: flex-end;
   border-top: 1px solid #f0f0f0;
+  flex: 0 0 auto;
 }
 
 .btn {

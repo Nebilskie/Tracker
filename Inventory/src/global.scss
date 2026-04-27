@@ -127,14 +127,40 @@ body.dark-theme .logout-btn ion-icon {
   color: #ff6b7b;
 }
 
-.request-modal-container {
+ion-modal.request-modal-container {
   --background: transparent !important;
-  --backdrop-opacity: 0.4;
+  --backdrop-opacity: 0;
+  --box-shadow: none;
+  /* Keep modal within viewport so footer isn't clipped */
+  --height: auto;
+  --max-height: 90vh;
+  --width: min(92vw, 520px);
+  --max-width: 520px;
 }
 
-.request-modal-container ion-page,
-.request-modal-container .modal-wrapper {
+ion-modal.request-modal-container ion-page,
+ion-modal.request-modal-container .modal-wrapper {
   background: transparent !important;
+  height: auto !important;
+  max-height: 90vh !important;
+}
+
+/* Ionic v6+ shadow part targeting (safer across platforms) */
+ion-modal.request-modal-container::part(content) {
+  height: auto;
+  max-height: 90vh;
+  width: min(92vw, 520px);
+  box-shadow: none !important;
+}
+
+/* Force-remove the dimmed backdrop for this modal */
+ion-modal.request-modal-container::part(backdrop) {
+  opacity: 0 !important;
+}
+
+ion-modal.request-modal-container ion-backdrop {
+  opacity: 0 !important;
+  display: none !important;
 }
 
 
