@@ -163,6 +163,7 @@
   backdrop-filter: blur(6px);
   overflow: auto;
   overscroll-behavior: contain;
+  cursor: pointer;
 }
 
 .building-hover.building-hover--compact {

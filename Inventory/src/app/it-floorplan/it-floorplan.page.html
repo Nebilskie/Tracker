@@ -98,7 +98,10 @@
             *ngIf="hoveredBuildingId === b.id"
             [class.building-hover--compact]="getBuildingRooms(b.id).length === 0"
             [ngStyle]="buildingHoverStyle"
-            (click)="$event.stopPropagation()"
+            (click)="selectBuilding(b)"
+            role="button"
+            tabindex="0"
+            (keyup.enter)="selectBuilding(b)"
           >
             <div class="building-hover-title">{{ b.building_name }}</div>
 

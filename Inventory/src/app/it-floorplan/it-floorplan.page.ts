@@ -129,6 +129,11 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
   private readonly KEY_CURRENT_ROOM = 'floorplan_current_room';
   private readonly KEY_CURRENT_BUILDING = 'floorplan_current_building_id';
   private readonly KEY_CURRENT_ROOM_ID = 'floorplan_current_room_id';
+  private readonly KEY_LAST_VIEW = 'floorplan_last_view';
+
+  private readonly VIEW_BUILDINGS = 'buildings';
+  private readonly VIEW_ROOMS = 'rooms';
+  private readonly VIEW_CANVAS = 'canvas';
 
   private toolboxDragging = false;
   private toolboxDragOffsetX = 0;
@@ -193,16 +198,51 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
     await this.loadBuildingsFromApi();
     await this.warmBuildingPreviews();
 
-    const { value: savedBid } = await Preferences.get({
-      key: this.KEY_CURRENT_BUILDING,
-    });
-    // Default to the "See all" (buildings overview) view on page load.
-    // We still keep the saved building id in Preferences so a future change can opt back into restoring it,
-    // but the initial screen should always be the buildings overview.
-    void savedBid;
-    this.activeBuildingId = null;
-    this.activeRoomId = null;
-    this.rooms = [];
+    // Restore last view (buildings/rooms/canvas) when returning to this page.
+    const [{ value: savedView }, { value: savedBid }, { value: savedRid }] =
+      await Promise.all([
+        Preferences.get({ key: this.KEY_LAST_VIEW }),
+        Preferences.get({ key: this.KEY_CURRENT_BUILDING }),
+        Preferences.get({ key: this.KEY_CURRENT_ROOM_ID }),
+      ]);
+
+    const view =
+      savedView === this.VIEW_CANVAS || savedView === this.VIEW_ROOMS || savedView === this.VIEW_BUILDINGS
+        ? savedView
+        : this.VIEW_BUILDINGS;
+
+    const buildingId =
+      savedBid && /^\d+$/.test(savedBid.trim()) ? Number(savedBid.trim()) : null;
+    const roomId =
+      savedRid && /^\d+$/.test(savedRid.trim()) ? Number(savedRid.trim()) : null;
+
+    const hasBuilding = buildingId != null && this.buildings.some((b) => b.id === buildingId);
+
+    this.hoveredBuildingId = null;
+    this.hoveredRoomId = null;
+
+    if (view === this.VIEW_CANVAS && hasBuilding && roomId != null) {
+      this.activeBuildingId = buildingId;
+      this.activeRoomId = roomId;
+      this.showFloorCanvas = true;
+      this.rooms = [];
+      await this.loadRoomsForBuilding(buildingId as number);
+      this.cdr.detectChanges();
+      await this.switchRoom(String(roomId), true);
+    } else if (view === this.VIEW_ROOMS && hasBuilding) {
+      this.activeBuildingId = buildingId;
+      this.activeRoomId = roomId != null ? roomId : null;
+      this.showFloorCanvas = false;
+      this.rooms = [];
+      await this.loadRoomsForBuilding(buildingId as number);
+    } else {
+      // Buildings overview
+      this.activeBuildingId = null;
+      this.activeRoomId = null;
+      this.rooms = [];
+      this.showFloorCanvas = false;
+      await Preferences.set({ key: this.KEY_LAST_VIEW, value: this.VIEW_BUILDINGS });
+    }
 
     window.addEventListener('keydown', this.handleKeyDelete);
   }
@@ -320,6 +360,7 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
       key: this.KEY_CURRENT_BUILDING,
       value: String(b.id),
     });
+    void Preferences.set({ key: this.KEY_LAST_VIEW, value: this.VIEW_ROOMS });
     this.showFloorCanvas = false;
     this.closeToolbox();
     this.buildingRoomsCache.delete(b.id);
@@ -334,6 +375,7 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
     this.rooms = [];
     this.activeRoomId = null;
     this.showFloorCanvas = false;
+    void Preferences.set({ key: this.KEY_LAST_VIEW, value: this.VIEW_BUILDINGS });
     this.closeToolbox();
     if (this.inventoryRefreshInterval) {
       clearInterval(this.inventoryRefreshInterval);
@@ -348,6 +390,7 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
     this.hoveredBuildingId = null;
     this.activeRoomId = room.id;
     await Preferences.set({ key: this.KEY_CURRENT_ROOM_ID, value: String(room.id) });
+    await Preferences.set({ key: this.KEY_LAST_VIEW, value: this.VIEW_CANVAS });
     this.showFloorCanvas = true;
     this.cdr.detectChanges();
     await this.switchRoom(String(room.id), true);
@@ -362,6 +405,7 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
     this.hoveredRoomId = null;
     this.hoveredBuildingId = null;
     this.closeToolbox();
+    void Preferences.set({ key: this.KEY_LAST_VIEW, value: this.VIEW_ROOMS });
 
     // If we just edited a room, refresh its quickview + stats when returning.
     const rid = this.currentNumericRoomId();
