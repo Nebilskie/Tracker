@@ -170,7 +170,7 @@ export class ItInventoryPage implements OnInit {
             return {
               id: it.id,
               name: displayName,
-              status: it.status,
+              status: this.mapItemStatus(it.status),
               details,
               brand,
               location: it.location || ''
@@ -249,6 +249,25 @@ export class ItInventoryPage implements OnInit {
     }
     result.push(current);
     return result;
+  }
+
+  private mapItemStatus(status: any): string {
+    const normalized = String(status ?? '').trim();
+    switch (normalized) {
+      case '0':
+      case 'DEFECT':
+      case 'DEFECTS':
+      case 'DEFECTIVE':
+        return 'DEFECT';
+      case '1':
+      case 'AVAILABLE':
+        return 'AVAILABLE';
+      case '2':
+      case 'USED':
+        return 'USED';
+      default:
+        return normalized.toUpperCase();
+    }
   }
 
   onImportFile(event: any) {

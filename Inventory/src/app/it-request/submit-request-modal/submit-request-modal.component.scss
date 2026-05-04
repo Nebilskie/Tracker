@@ -10,13 +10,22 @@
   min-width: min(420px, 92vw);
   background: white;
   border-radius: 12px;
-  overflow: visible;
+  overflow: hidden;
   box-shadow: none;
   border: 1px solid rgba(15, 23, 42, 0.10);
-  /* Ensure footer buttons are reachable on small viewports */
-  max-height: 100%;
+  max-height: 92vh;
   display: flex;
   flex-direction: column;
+}
+
+.modal-body {
+  padding: 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+  min-height: 0;
+  max-height: calc(92vh - 180px);
 }
 
 /* Ionic select/ion-item can render a default highlight/backdrop that looks like a faint square.

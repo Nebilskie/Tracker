@@ -518,21 +518,25 @@ async function upsertFloorplanInventory(conn, userId, roomId, floorItems) {
   }
 }
 
-function resolveInventoryTableFromRequestText(requestText) {
+async function resolveInventoryTableFromRequestText(conn, requestText) {
   const text = (requestText || "").toLowerCase();
-  const mapping = {
-    monitor: "monitor",
-    headset: "headset",
-    webcam: "camera",
-    camera: "camera",
-    mouse: "mouse",
-    keyboard: "keyboard",
-    computer: "computer",
-  };
+  if (!text) return null;
 
-  for (const key of Object.keys(mapping)) {
-    if (text.includes(key)) return mapping[key];
+  const [rows] = await conn.query(
+    `SELECT DISTINCT TRIM(LOWER(item_type)) AS item_type
+     FROM mst_item
+     WHERE item_type IS NOT NULL AND TRIM(item_type) <> ''
+     ORDER BY CHAR_LENGTH(TRIM(item_type)) DESC`
+  );
+
+  if (!rows.length) return null;
+
+  for (const row of rows) {
+    const itemType = row?.item_type;
+    if (!itemType) continue;
+    if (text.includes(itemType)) return itemType;
   }
+
   return null;
 }
 
@@ -559,14 +563,14 @@ async function setFloorplanInventoryValue(conn, roomId, label, itemType, itemCod
   if (itemCode) {
     // assign the item to the cubicle
     await conn.query(
-      `UPDATE mst_item SET room_id = ?, cubicle_id = ?, updated_at = CURRENT_TIMESTAMP WHERE item_type = ? AND code = ?`,
+      `UPDATE mst_item SET room_id = ?, cubicle_id = ?, last_update = CURRENT_TIMESTAMP WHERE item_type = ? AND code = ?`,
       [roomId, cubicleId, itemType, itemCode]
     );
   } else {
     // clear assignment for any item of this type assigned to this cubicle
     if (cubicleId) {
       await conn.query(
-        `UPDATE mst_item SET cubicle_id = NULL, room_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE item_type = ? AND cubicle_id = ?`,
+        `UPDATE mst_item SET cubicle_id = NULL, room_id = NULL, last_update = CURRENT_TIMESTAMP WHERE item_type = ? AND cubicle_id = ?`,
         [itemType, cubicleId]
       );
     }
@@ -580,7 +584,7 @@ async function setFloorplanInventoryValue(conn, roomId, label, itemType, itemCod
 
 
 async function reserveRequestedItem(conn, requestId, requestText) {
-  const itemType = resolveInventoryTableFromRequestText(requestText);
+  const itemType = await resolveInventoryTableFromRequestText(conn, requestText);
   if (!itemType) return;
 
   const [reqRows] = await conn.query(
@@ -603,7 +607,7 @@ async function reserveRequestedItem(conn, requestId, requestText) {
     const itemName = availableRows[0].code || null;
 
     await conn.query(
-      `UPDATE mst_item SET status = 2, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      `UPDATE mst_item SET status = 2, last_update = CURRENT_TIMESTAMP WHERE id = ?`,
       [itemId]
     );
 
@@ -637,7 +641,7 @@ async function reserveRequestedItem(conn, requestId, requestText) {
           );
           // detach previous item from cubicle
           await conn.query(
-            `UPDATE mst_item SET cubicle_id = NULL, room_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+            `UPDATE mst_item SET cubicle_id = NULL, room_id = NULL, last_update = CURRENT_TIMESTAMP WHERE id = ?`,
             [prev[0].id]
           );
         }
@@ -672,7 +676,7 @@ async function releaseReservedItem(conn, requestId, requestText) {
     const row = existing[0];
     if (row.status === 2) {
       // mark available
-      await conn.query(`UPDATE mst_item SET status = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [itemId]);
+      await conn.query(`UPDATE mst_item SET status = 1, last_update = CURRENT_TIMESTAMP WHERE id = ?`, [itemId]);
 
       const cubicleLabel = extractCubicleLabel(requestText);
       const itemType = row.item_type;
@@ -698,23 +702,110 @@ async function releaseReservedItem(conn, requestId, requestText) {
 async function markRequestedItemUsed(conn, requestId, requestText) {
   try {
     const [reqRows] = await conn.query(
-      "SELECT user_id, inventory_table, inventory_item_id FROM requests WHERE id = ?",
+      "SELECT user_id, inventory_table, inventory_item_id, inventory_item_name FROM requests WHERE id = ?",
       [requestId]
     );
 
     const userId = reqRows?.[0]?.user_id || null;
-    const itemId = reqRows?.[0]?.inventory_item_id || null;
-    const itemTypeFromText = resolveInventoryTableFromRequestText(requestText);
+    let itemId = reqRows?.[0]?.inventory_item_id || null;
+    let itemName = reqRows?.[0]?.inventory_item_name || null;
+    let itemType = null;
+    const requestTextValue = String(requestText || '').trim();
+    const itemTypeFromText = await resolveInventoryTableFromRequestText(conn, requestTextValue);
+    console.log(`[markRequestedItemUsed] requestId=${requestId} text='${requestTextValue}' itemId=${itemId} itemName=${itemName} itemTypeFromText=${itemTypeFromText}`);
 
-    if (!itemId) return;
+    if (!itemId && itemName) {
+      const [itemRows] = await conn.query(
+        `SELECT id, code, item_type FROM mst_item WHERE LOWER(TRIM(code)) = LOWER(TRIM(?)) LIMIT 1`,
+        [itemName]
+      );
+      if (itemRows.length) {
+        itemId = itemRows[0].id;
+        itemName = itemRows[0].code || itemName;
+        itemType = itemRows[0].item_type || null;
+      }
+    }
 
-    await conn.query(`UPDATE mst_item SET status = 2, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [itemId]);
+    if (!itemId && itemTypeFromText) {
+      const [candidateRows] = await conn.query(
+        `SELECT id, code, item_type FROM mst_item
+         WHERE LOWER(TRIM(item_type)) = LOWER(TRIM(?)) AND status = 1
+         ORDER BY last_update ASC
+         LIMIT 1`,
+        [itemTypeFromText]
+      );
 
-    const [itemRows] = await conn.query(`SELECT code, item_type FROM mst_item WHERE id = ?`, [itemId]);
-    const itemName = itemRows?.[0]?.code || null;
-    const itemType = itemRows?.[0]?.item_type || itemTypeFromText;
+      console.log('[markRequestedItemUsed] candidateRows fetched, count=', candidateRows.length);
+      if (candidateRows.length) {
+        const candidate = candidateRows[0];
+        const pickedId = candidate.id;
+        const pickedCode = candidate.code || null;
+        const pickedType = candidate.item_type || null;
 
-    const cubicleLabel = extractCubicleLabel(requestText);
+        const [updateResult] = await conn.query(
+          `UPDATE mst_item SET status = 2, last_update = CURRENT_TIMESTAMP WHERE id = ?`,
+          [pickedId]
+        );
+
+        console.log('[markRequestedItemUsed] updateResult=', updateResult);
+
+        if (updateResult?.affectedRows) {
+          itemId = pickedId;
+          itemName = pickedCode || itemName;
+          itemType = pickedType || itemType;
+        }
+      }
+    }
+
+    if (!itemId && itemTypeFromText) {
+      // Fallback: try any item of this type (ignoring current status)
+      const [candidateRows2] = await conn.query(
+        `SELECT id, code, item_type FROM mst_item
+         WHERE LOWER(TRIM(item_type)) = LOWER(TRIM(?))
+         ORDER BY last_update ASC
+         LIMIT 1`,
+        [itemTypeFromText]
+      );
+
+      console.log('[markRequestedItemUsed] fallback candidateRows2 count=', candidateRows2.length);
+      if (candidateRows2.length) {
+        const candidate2 = candidateRows2[0];
+        const pickedId2 = candidate2.id;
+        const pickedCode2 = candidate2.code || null;
+        const pickedType2 = candidate2.item_type || null;
+
+        const [updateResult2] = await conn.query(
+          `UPDATE mst_item SET status = 2, last_update = CURRENT_TIMESTAMP WHERE id = ?`,
+          [pickedId2]
+        );
+        console.log('[markRequestedItemUsed] fallback updateResult=', updateResult2);
+
+        if (updateResult2?.affectedRows) {
+          itemId = pickedId2;
+          itemName = pickedCode2 || itemName;
+          itemType = pickedType2 || itemType;
+        }
+      }
+    }
+
+    if (!itemId) {
+      return;
+    }
+
+    await conn.query(
+      `UPDATE requests SET inventory_table = ?, inventory_item_id = ?, inventory_item_name = ? WHERE id = ?`,
+      ['mst_item', itemId, itemName, requestId]
+    );
+
+    if (!itemName || !itemType) {
+      const [itemRows] = await conn.query(`SELECT code, item_type FROM mst_item WHERE id = ?`, [itemId]);
+      if (itemRows.length) {
+        itemName = itemRows[0].code || itemName;
+        itemType = itemRows[0].item_type || itemType;
+      }
+    }
+
+    const cubicleLabel = extractCubicleLabel(requestTextValue);
 
     if (cubicleLabel && itemType && userId) {
       const [roomRows] = await conn.query(
@@ -769,7 +860,7 @@ async function updateItemLocation(conn, table, itemName) {
   }
 
   await conn.query(
-    `UPDATE mst_item SET location = ?, updated_at = CURRENT_TIMESTAMP WHERE LOWER(code) = LOWER(?)`,
+    `UPDATE mst_item SET location = ?, last_update = CURRENT_TIMESTAMP WHERE LOWER(code) = LOWER(?)`,
     [location, itemName]
   );
 }
