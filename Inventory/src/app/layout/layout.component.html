@@ -73,6 +73,11 @@
           <span>Inventory</span>
         </button>
 
+        <button *ngIf="!isUser" class="nav-btn" (click)="navigate(itUsersRoute)" [routerLink]="itUsersRoute" routerLinkActive="active">
+          <ion-icon name="people-outline"></ion-icon>
+          <span>Users</span>
+        </button>
+
         <button class="nav-btn" (click)="navigate(floorplanRoute)" [routerLink]="floorplanRoute" routerLinkActive="active">
           <ion-icon name="grid-outline"></ion-icon>
           <span>Floor Plan</span>

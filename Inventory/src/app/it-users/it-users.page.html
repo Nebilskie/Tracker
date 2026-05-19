@@ -1,0 +1,177 @@
+<ion-content>
+  <div class="list-container users-page">
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <select class="category-filter" [(ngModel)]="selectedRole" (change)="filterByRole()">
+          <option value="">All Users</option>
+          <option *ngFor="let role of roles" [value]="role">{{ role }}</option>
+        </select>
+
+        <button class="tool-btn" type="button" (click)="fileInput.click()">
+          <ion-icon name="cloud-upload-outline"></ion-icon>
+          Bulk Import
+        </button>
+        <input #fileInput type="file" accept=".csv" hidden (change)="onImportFile($event)" />
+
+        <div class="export-wrapper">
+          <button class="tool-btn" type="button" (click)="toggleExportDropdown($event)">
+            <ion-icon name="download-outline"></ion-icon>
+            Export
+          </button>
+          <div class="export-dropdown" *ngIf="showExportDropdown">
+            <div class="export-section">
+              <div class="export-section-title">CURRENT PAGE</div>
+              <button class="export-option" type="button" (click)="exportData('pdf-landscape', 'current')">
+                <ion-icon name="document-outline"></ion-icon> Landscape PDF
+              </button>
+              <button class="export-option" type="button" (click)="exportData('pdf-portrait', 'current')">
+                <ion-icon name="document-outline"></ion-icon> Portrait PDF
+              </button>
+              <button class="export-option" type="button" (click)="exportData('csv', 'current')">
+                <ion-icon name="document-text-outline"></ion-icon> CSV
+              </button>
+              <button class="export-option" type="button" (click)="exportData('ods', 'current')">
+                <ion-icon name="grid-outline"></ion-icon> Spreadsheet (ODS)
+              </button>
+              <button class="export-option" type="button" (click)="exportData('xlsx', 'current')">
+                <ion-icon name="grid-outline"></ion-icon> Spreadsheet (XLSX)
+              </button>
+            </div>
+            <div class="export-section">
+              <div class="export-section-title">ALL PAGES</div>
+              <button class="export-option" type="button" (click)="exportData('pdf-landscape', 'all')">
+                <ion-icon name="document-outline"></ion-icon> Landscape PDF
+              </button>
+              <button class="export-option" type="button" (click)="exportData('pdf-portrait', 'all')">
+                <ion-icon name="document-outline"></ion-icon> Portrait PDF
+              </button>
+              <button class="export-option" type="button" (click)="exportData('csv', 'all')">
+                <ion-icon name="document-text-outline"></ion-icon> CSV
+              </button>
+              <button class="export-option" type="button" (click)="exportData('ods', 'all')">
+                <ion-icon name="grid-outline"></ion-icon> Spreadsheet (ODS)
+              </button>
+              <button class="export-option" type="button" (click)="exportData('xlsx', 'all')">
+                <ion-icon name="grid-outline"></ion-icon> Spreadsheet (XLSX)
+              </button>
+            </div>
+            <div class="export-section export-section-last">
+              <button class="export-option" type="button" (click)="copyNamesToClipboard()">
+                <ion-icon name="copy-outline"></ion-icon> Copy usernames to clipboard
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="toolbar-right">
+        <input
+          type="text"
+          class="search-input"
+          placeholder="Search users..."
+          [(ngModel)]="searchTerm"
+          (input)="applySearch()"
+        />
+      </div>
+    </div>
+
+    <div class="import-status" *ngIf="showImportStatus">
+      {{ showImportStatus }}
+    </div>
+
+    <div class="table-wrapper">
+      <table class="users-table">
+        <thead>
+          <tr>
+            <th *ngFor="let column of columns">{{ column.label }}</th>
+            <th>Assign</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let user of pagedUsers">
+            <td *ngFor="let column of columns">
+              <ng-container *ngIf="column.key === 'password'">
+                <div class="password-cell">
+                  <span>{{ getPasswordDisplay(user) }}</span>
+                  <button class="password-toggle" type="button" (click)="togglePasswordVisibility(user)">
+                    <ion-icon [name]="isPasswordVisible(user) ? 'eye-off-outline' : 'eye-outline'"></ion-icon>
+                  </button>
+                </div>
+              </ng-container>
+              <ng-container *ngIf="column.key !== 'password'">
+                {{ user[column.key] ?? '' }}
+              </ng-container>
+            </td>
+            <td>
+              <button class="tool-btn assign-btn" type="button" (click)="startAssign(user)">
+                {{ getAssignButtonLabel(user) }}
+              </button>
+            </td>
+          </tr>
+          <tr *ngIf="pagedUsers.length === 0">
+            <td [attr.colspan]="columns.length + 1">No users to display.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="assignment-panel" *ngIf="selectedAssignmentUser">
+      <h3>Assign user: {{ selectedAssignmentUser['username'] || selectedAssignmentUser['id'] }}</h3>
+      <div class="assignment-row">
+        <label>
+          Building
+          <select [(ngModel)]="assignmentModel.building_id" (ngModelChange)="onBuildingChange()">
+            <option value="">Select building</option>
+            <option *ngFor="let building of buildings" [value]="building.id">{{ building.building_name }}</option>
+          </select>
+        </label>
+        <label>
+          Room
+          <select [(ngModel)]="assignmentModel.room_id" (ngModelChange)="onRoomChange()" [disabled]="!assignmentModel.building_id">
+            <option value="">Select room</option>
+            <option *ngFor="let room of rooms" [value]="room.id">{{ room.room_name }}</option>
+          </select>
+        </label>
+        <label>
+          Cubicle
+          <select [(ngModel)]="assignmentModel.cubicle_id" [disabled]="!assignmentModel.room_id">
+            <option value="">Select cubicle</option>
+            <option *ngFor="let cubicle of cubicles" [value]="cubicle.id">{{ cubicle.label }}</option>
+          </select>
+        </label>
+      </div>
+      <div class="assignment-actions">
+        <button class="tool-btn" type="button" (click)="saveAssignment()">Save Assignment</button>
+        <button class="tool-btn secondary" type="button" (click)="cancelAssignment()">Cancel</button>
+      </div>
+    </div>
+
+    <div class="pagination-bar">
+      <div class="page-size">
+        <select [(ngModel)]="pageSize" (change)="currentPage = 1; paginate()">
+          <option [value]="10">10</option>
+          <option [value]="20">20</option>
+          <option [value]="50">50</option>
+        </select>
+        <span>rows / page</span>
+      </div>
+      <div class="page-info">
+        Showing {{ (currentPage - 1) * pageSize + 1 }} to {{ pageEnd }} of {{ totalRows }} rows
+      </div>
+      <div class="page-controls">
+        <button class="page-btn" type="button" (click)="goToPage(1)" [disabled]="currentPage === 1">«</button>
+        <button class="page-btn" type="button" (click)="goToPage(currentPage - 1)" [disabled]="currentPage === 1">‹</button>
+        <button
+          class="page-btn"
+          type="button"
+          *ngFor="let page of pageNumbers"
+          [class.active]="page === currentPage"
+          (click)="goToPage(page)"
+        >
+          {{ page }}
+        </button>
+        <button class="page-btn" type="button" (click)="goToPage(currentPage + 1)" [disabled]="currentPage === totalPages">›</button>
+        <button class="page-btn" type="button" (click)="goToPage(totalPages)" [disabled]="currentPage === totalPages">»</button>
+      </div>
+    </div>
+  </div>
+</ion-content>

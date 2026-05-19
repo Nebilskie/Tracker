@@ -108,6 +108,28 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
   hoveredCubicleLabel: string | null = null;
   cubicleInventory: Record<string, any> = {};
 
+  get selectedFloorItem(): FloorItem | null {
+    return this.floorItems.find((item) => item.id === this.selectedItemId) ?? null;
+  }
+
+  // Transfer UI state
+  transferPanelOpen = false;
+  transferFromLabel: string | null = null;
+  transferFromCubicleId: number | null = null;
+  transferToCubicleId: number | null = null;
+  availableCubicles: Array<{ id: number; label: string; assignedUser?: string | null }> = [];
+  transferSelectedTypes: string[] = [];
+  transferAll = false;
+  transferAssignedUser = false;
+  readonly availableItemTypes = [
+    { key: 'monitor', label: 'Monitor' },
+    { key: 'headset', label: 'Headset' },
+    { key: 'camera', label: 'Camera' },
+    { key: 'mouse', label: 'Mouse' },
+    { key: 'keyboard', label: 'Keyboard' },
+    { key: 'computer', label: 'Computer' },
+  ];
+
   toolboxX = 30;
   toolboxY = 250;
 
@@ -262,6 +284,15 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
       String(b.building_name || '')
         .toLowerCase()
         .includes(t)
+    );
+  }
+
+  get canDeleteActiveBuilding(): boolean {
+    return (
+      this.activeBuilding != null &&
+      String(this.activeBuilding.building_name || '')
+        .trim()
+        .toLowerCase() !== 'storage'
     );
   }
 
@@ -487,6 +518,61 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
     } catch (e) {
       console.error(e);
       alert('Failed to create room');
+    }
+  }
+
+  async deleteBuilding() {
+    if (this.activeBuildingId == null || !this.canDeleteActiveBuilding) return;
+
+    const ok = window.confirm(
+      'Delete this building and all of its rooms?\n\nThis cannot be undone.'
+    );
+    if (!ok) return;
+
+    try {
+      const res: any = await firstValueFrom(
+        this.floorplanApi.deleteBuilding(this.activeBuildingId)
+      );
+      if (!res?.success) {
+        alert(res?.error || 'Failed to delete building');
+        return;
+      }
+
+      await this.loadBuildingsFromApi();
+      this.onSeeAllBuildings();
+    } catch (e) {
+      console.error(e);
+      alert('Failed to delete building');
+    }
+  }
+
+  async deleteRoom() {
+    if (this.activeBuildingId == null || this.activeRoomId == null) return;
+
+    const ok = window.confirm(
+      'Delete this room and its floorplan?\n\nItems assigned to this room will be unassigned.'
+    );
+    if (!ok) return;
+
+    try {
+      const res: any = await firstValueFrom(
+        this.floorplanApi.deleteBuildingRoom(this.activeBuildingId, this.activeRoomId)
+      );
+      if (!res?.success) {
+        alert(res?.error || 'Failed to delete room');
+        return;
+      }
+
+      this.activeRoomId = null;
+      if (this.showFloorCanvas) {
+        this.closeFloorLayout();
+      }
+      if (this.activeBuildingId != null) {
+        await this.loadRoomsForBuilding(this.activeBuildingId);
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Failed to delete room');
     }
   }
 
@@ -845,21 +931,148 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
     this.hoveredCubicleLabel = label;
   }
 
+  // Transfer helpers
+  startTransfer(fromLabel: string) {
+    // Start transfer with a preselected source label (keeps old behavior)
+    this.openTransferDialog();
+    this.transferFromLabel = fromLabel;
+    this.transferFromCubicleId = null;
+    // try to preselect source id if available
+    const key = String(fromLabel || '').trim().toLowerCase();
+    const found = this.availableCubicles.find((c) => String(c.label || '').trim().toLowerCase() === key);
+    if (found) this.transferFromCubicleId = Number(found.id);
+  }
+
+  openTransferDialog() {
+    this.transferPanelOpen = true;
+    this.transferFromLabel = this.selectedFloorItem?.type === 'cubicle' ? this.selectedFloorItem.label : null;
+    this.transferFromCubicleId = null;
+    this.transferToCubicleId = null;
+    this.transferSelectedTypes = [];
+    this.transferAll = false;
+    this.transferAssignedUser = false;
+    this.availableCubicles = [];
+
+    if (this.activeRoomId != null) {
+      this.floorplanApi.listRoomCubicles(this.activeRoomId).subscribe({
+        next: (res: any) => {
+          if (res?.success && Array.isArray(res.cubicles)) {
+            this.availableCubicles = res.cubicles.map((c: any) => ({
+              id: Number(c.id),
+              label: String(c.label || ''),
+              assignedUser: c.assignedUser || null,
+            }));
+
+            if (this.transferFromLabel) {
+              const key = String(this.transferFromLabel || '').trim().toLowerCase();
+              const found = this.availableCubicles.find((c) => String(c.label || '').trim().toLowerCase() === key);
+              if (found) {
+                this.transferFromCubicleId = Number(found.id);
+              }
+            }
+
+            if (this.transferSourceAssignedUser) {
+              this.transferAssignedUser = true;
+            }
+          }
+        },
+        error: (err: unknown) => {
+          console.error('Failed loading cubicles for transfer', err);
+          this.availableCubicles = [];
+        }
+      });
+    }
+  }
+
+  cancelTransfer() {
+    this.transferPanelOpen = false;
+    this.transferFromLabel = null;
+    this.transferFromCubicleId = null;
+    this.transferToCubicleId = null;
+    this.transferSelectedTypes = [];
+    this.transferAssignedUser = false;
+    this.availableCubicles = [];
+  }
+
+  get transferSourceAssignedUser(): string | null {
+    const currentSource = this.availableCubicles.find((c) => Number(c.id) === Number(this.transferFromCubicleId));
+    if (currentSource && currentSource.assignedUser) {
+      return String(currentSource.assignedUser);
+    }
+    const compareLabel = String(this.transferFromLabel || '').trim().toLowerCase();
+    if (!compareLabel) return null;
+    const sourceByLabel = this.availableCubicles.find((c) => String(c.label || '').trim().toLowerCase() === compareLabel);
+    return sourceByLabel?.assignedUser ? String(sourceByLabel.assignedUser) : null;
+  }
+
+  toggleTransferType(type: string) {
+    const idx = this.transferSelectedTypes.indexOf(type);
+    if (idx === -1) this.transferSelectedTypes.push(type);
+    else this.transferSelectedTypes.splice(idx, 1);
+  }
+
+  performTransfer() {
+    if (!this.transferFromCubicleId) return alert('Choose a source cubicle');
+    if (!this.transferToCubicleId) return alert('Choose a target cubicle');
+
+    const source = this.availableCubicles.find((c) => Number(c.id) === Number(this.transferFromCubicleId));
+    const fromLabel = source ? String(source.label || '') : null;
+    if (!fromLabel) return alert('Invalid source selection');
+
+    const payload: any = {
+      roomId: this.roomId,
+      fromLabel,
+      toCubicleId: this.transferToCubicleId,
+      transferAssignedUser: this.transferAssignedUser,
+    };
+    if (!this.transferAll && this.transferSelectedTypes && this.transferSelectedTypes.length) payload.itemTypes = this.transferSelectedTypes;
+
+    this.floorplanApi.transferItems(payload).subscribe({
+      next: (res: any) => {
+        if (!res?.success) return alert(res?.error || 'Transfer failed');
+        alert('Transfer complete');
+        this.cancelTransfer();
+        if (this.roomId) this.refreshInventoryFromServer(this.roomId);
+        // refresh previews and floorplan
+        void this.loadFloorplanForRoom(this.roomId || '');
+      },
+      error: (err) => {
+        console.error('Transfer failed', err);
+        alert('Transfer failed');
+      }
+    });
+  }
+
   getInventoryTooltipLines(label: string): string[] {
     const row = this.cubicleInventory[this.normalizeCubicleLabel(label)] || {};
 
-    const fields: Array<[string, any]> = [
-      ['Monitor', row.monitors],
-      ['Headset', row.headsets],
-      ['Camera', row.cameras],
-      ['Mouse', row.mouse],
-      ['Keyboard', row.keyboards],
-      ['Computer', row.computers],
-    ];
+    const lines: string[] = [];
+    const itemNames = Array.isArray(row.itemNames)
+      ? row.itemNames.filter((name: any) => String(name || '').trim() !== '')
+      : [];
+    if (itemNames.length) {
+      lines.push(...itemNames.map((name: any) => String(name)));
+    } else {
+      const fields: Array<[string, any]> = [
+        ['Monitor', row.monitors],
+        ['Headset', row.headsets],
+        ['Camera', row.cameras],
+        ['Mouse', row.mouse],
+        ['Keyboard', row.keyboards],
+        ['Computer', row.computers],
+      ];
 
-    const lines = fields
-      .filter(([, value]) => value !== null && value !== undefined && String(value).trim() !== '')
-      .map(([labelText, value]) => `${labelText}: ${value}`);
+      for (const [labelText, value] of fields) {
+        const n = Number(value);
+        if (Number.isFinite(n) && n > 0) {
+          lines.push(`${labelText}: ${n}`);
+        }
+      }
+    }
+
+    if (row.assignedUsers && String(row.assignedUsers).trim() !== '') {
+      lines.unshift(`User: ${String(row.assignedUsers).trim()}`);
+    }
 
     return lines.length > 0 ? lines : ['No assigned items'];
   }
@@ -1035,14 +1248,32 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
   }
 
   async onCanvasClick(event: MouseEvent) {
-    if (!this.isEditMode || !this.addMode) return;
-
     const target = event.target as HTMLElement;
+    const clickedOnFloorItem = !!target.closest('.floor-item');
+    const clickedOnTransferButton = !!target.closest('.transfer-button');
+    const clickedOnModal = !!target.closest('.transfer-modal');
 
     if (
-      target.closest('.floor-item') ||
+      !clickedOnFloorItem &&
+      !target.closest('.toolbox') &&
+      !target.closest('.edit-button') &&
+      !clickedOnTransferButton &&
+      !clickedOnModal &&
+      !target.closest('.fp-bottom-bar') &&
+      !target.closest('.fp-toolbar') &&
+      !target.closest('.building-overview') &&
+      !target.closest('.legend')
+    ) {
+      this.selectedItemId = null;
+    }
+
+    if (!this.isEditMode || !this.addMode) return;
+
+    if (
+      clickedOnFloorItem ||
       target.closest('.toolbox') ||
       target.closest('.edit-button') ||
+      clickedOnTransferButton ||
       target.closest('.fp-bottom-bar') ||
       target.closest('.fp-toolbar') ||
       target.closest('.building-overview') ||

@@ -171,6 +171,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
     return this.isUser ? '/app/user-floorplan' : '/app/it-floorplan';
   }
 
+  get itUsersRoute(): string {
+    return '/app/it-users';
+  }
+
   get requestRoute(): string {
     return this.isUser ? '/app/user-request' : '/app/it-request';
   }

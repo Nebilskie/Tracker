@@ -56,6 +56,10 @@ export class FloorplanApiService {
     return this.http.get(`${this.baseUrl}/api/buildings/${encodeURIComponent(String(buildingId))}/rooms`);
   }
 
+  listRoomCubicles(roomId: number): Observable<any> {
+    return this.http.get(`${this.baseUrl}/api/rooms/${encodeURIComponent(String(roomId))}/cubicles`);
+  }
+
   createBuildingRoom(buildingId: number, userId: number, room_name: string): Observable<any> {
     return this.http.post(`${this.baseUrl}/api/buildings/${encodeURIComponent(String(buildingId))}/rooms`, {
       userId,
@@ -63,7 +67,19 @@ export class FloorplanApiService {
     });
   }
 
+  deleteBuilding(buildingId: number): Observable<any> {
+    return this.http.delete(`${this.baseUrl}/api/buildings/${encodeURIComponent(String(buildingId))}`);
+  }
+
+  deleteBuildingRoom(buildingId: number, roomId: number): Observable<any> {
+    return this.http.delete(`${this.baseUrl}/api/buildings/${encodeURIComponent(String(buildingId))}/rooms/${encodeURIComponent(String(roomId))}`);
+  }
+
   listItemTypes(): Observable<any> {
     return this.http.get(`${this.baseUrl}/api/items/types`);
+  }
+
+  transferItems(payload: { roomId: string | number; fromLabel: string; toCubicleId: number; itemTypes?: string[]; transferAssignedUser?: boolean }): Observable<any> {
+    return this.http.post(`${this.baseUrl}/api/transfer-items`, payload);
   }
 }

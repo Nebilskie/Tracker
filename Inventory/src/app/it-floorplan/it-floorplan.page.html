@@ -35,6 +35,22 @@
           ← Rooms
         </button>
         <button
+          *ngIf="!showFloorCanvas && activeBuildingId && canDeleteActiveBuilding"
+          type="button"
+          class="fp-btn fp-btn-danger"
+          (click)="deleteBuilding()"
+        >
+          Delete Building
+        </button>
+        <button
+          *ngIf="(showFloorCanvas || activeRoomId) && activeBuildingId"
+          type="button"
+          class="fp-btn fp-btn-danger"
+          (click)="deleteRoom()"
+        >
+          Delete Room
+        </button>
+        <button
           *ngIf="!showFloorCanvas && activeBuildingId"
           type="button"
           class="fp-btn fp-btn-primary"
@@ -260,6 +276,15 @@
         + Edit
       </button>
 
+      <button
+        class="edit-button transfer-button"
+        type="button"
+        *ngIf="selectedFloorItem?.type === 'cubicle'"
+        (click)="openTransferDialog(); $event.stopPropagation()"
+      >
+        Transfer
+      </button>
+
       <div
         class="toolbox"
         *ngIf="toolboxOpen"
@@ -390,6 +415,8 @@
           <div *ngFor="let line of getInventoryTooltipLines(item.label)">
             {{ line }}
           </div>
+
+          <!-- transfer UI moved to global modal -->
         </div>
 
         <div
@@ -439,6 +466,74 @@
           class="resize-handle bottom-right"
           (pointerdown)="onResizeStart($event, item, 'bottom-right')"
         ></div>
+      </div>
+
+      <!-- Global transfer modal -->
+      <div *ngIf="transferPanelOpen" class="transfer-global">
+        <div class="transfer-backdrop" (click)="cancelTransfer()"></div>
+        <div class="toolbox transfer-modal" [ngStyle]="{ right: '20px', bottom: '180px' }" (click)="$event.stopPropagation()">
+          <div class="toolbox-handle">
+            <div class="toolbox-title">Transfer items</div>
+            <button class="toolbox-close" type="button" (click)="cancelTransfer()">
+              <ion-icon name="close-outline"></ion-icon>
+            </button>
+          </div>
+
+          <div class="toolbox-body">
+            <div class="transfer-row">
+              <label class="transfer-label">Source cubicle</label>
+              <select [(ngModel)]="transferFromCubicleId">
+                <option [value]="null">Select source</option>
+                <option *ngFor="let c of availableCubicles" [value]="c.id">{{ c.label }}</option>
+              </select>
+            </div>
+
+            <div class="transfer-row">
+              <label class="transfer-label">Target cubicle</label>
+              <select [(ngModel)]="transferToCubicleId">
+                <option [value]="null">Select target cubicle</option>
+                <option *ngFor="let c of availableCubicles" [value]="c.id">{{ c.label }}{{ c.assignedUser ? ' (' + c.assignedUser + ')' : '' }}</option>
+              </select>
+            </div>
+
+            <div class="transfer-row">
+              <label class="transfer-label">Assigned user</label>
+              <label class="transfer-opt transfer-checkbox">
+                <input type="checkbox" [(ngModel)]="transferAssignedUser" />
+                Transfer assigned user
+              </label>
+              <div class="transfer-note" *ngIf="transferSourceAssignedUser">
+                Source user: {{ transferSourceAssignedUser }}
+              </div>
+            </div>
+
+            <div class="transfer-row">
+              <label class="transfer-label">Move</label>
+              <div class="transfer-options">
+                <label class="transfer-opt">
+                  <input type="radio" name="transferModeGlobal" [(ngModel)]="transferAll" [value]="true" /> All items
+                </label>
+                <label class="transfer-opt">
+                  <input type="radio" name="transferModeGlobal" [(ngModel)]="transferAll" [value]="false" /> Selected types
+                </label>
+              </div>
+            </div>
+
+            <div class="transfer-row" *ngIf="!transferAll">
+              <label class="transfer-label">Item types</label>
+              <div class="transfer-types">
+                <button type="button" class="chip" *ngFor="let t of availableItemTypes" (click)="toggleTransferType(t.key)" [class.active]="transferSelectedTypes.indexOf(t.key) > -1">
+                  {{ t.label }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="transfer-footer">
+            <button class="fp-btn fp-btn-primary" type="button" (click)="performTransfer()">Transfer</button>
+            <button class="fp-btn" type="button" (click)="cancelTransfer()">Cancel</button>
+          </div>
+        </div>
       </div>
     </div>
 

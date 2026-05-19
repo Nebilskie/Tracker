@@ -16,6 +16,7 @@ const routes: Routes = [
       {path: 'it-inventory', loadChildren: () => import('./it-inventory/it-inventory.module').then( m => m.ItInventoryPageModule)},
       {path: 'it-floorplan', loadChildren: () => import('./it-floorplan/it-floorplan.module').then( m => m.ItFloorplanPageModule)},
       {path: 'it-request', loadChildren: () => import('./it-request/it-request.module').then( m => m.ItRequestPageModule)},
+      {path: 'it-users', loadChildren: () => import('./it-users/it-users.module').then( m => m.ItUsersPageModule)},
       {path: 'add-item-modal', loadChildren: () => import('./add-item-modal/add-item-modal.module').then( m => m.AddItemModalPageModule)},
       {path: 'user-floorplan', loadChildren: () => import('./user-floorplan/user-floorplan.module').then( m => m.UserFloorplanPageModule)},
       {path: 'user-request', loadChildren: () => import('./user-request/user-request.module').then( m => m.UserRequestPageModule)},
@@ -25,6 +26,11 @@ const routes: Routes = [
     path: '',
     redirectTo: 'home',
     pathMatch: 'full',
+  },
+  {
+    path: 'it-users',
+    redirectTo: '/app/it-users',
+    pathMatch: 'full'
   },
   
 

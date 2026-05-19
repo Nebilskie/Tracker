@@ -405,6 +405,29 @@ async function initializeTables() {
       );
     } catch (_e) {}
 
+    // Ensure users can be assigned to buildings, rooms, and cubicles.
+    try {
+      const [userTableExists] = await conn.query("SHOW TABLES LIKE 'mst_users'");
+      if (userTableExists.length) {
+        const [buildingIdColUser] = await conn.query("SHOW COLUMNS FROM mst_users LIKE 'building_id'");
+        if (!buildingIdColUser.length) {
+          await conn.query("ALTER TABLE mst_users ADD COLUMN building_id INT NULL AFTER role");
+        }
+
+        const [roomIdColUser] = await conn.query("SHOW COLUMNS FROM mst_users LIKE 'room_id'");
+        if (!roomIdColUser.length) {
+          await conn.query("ALTER TABLE mst_users ADD COLUMN room_id INT NULL AFTER building_id");
+        }
+
+        const [cubicleIdColUser] = await conn.query("SHOW COLUMNS FROM mst_users LIKE 'cubicle_id'");
+        if (!cubicleIdColUser.length) {
+          await conn.query("ALTER TABLE mst_users ADD COLUMN cubicle_id INT NULL AFTER room_id");
+        }
+      }
+    } catch (e) {
+      console.warn("⚠️ mst_users location assignment migration skipped:", e?.message || e);
+    }
+
     // Clean up legacy room placeholder entries in the mst_cubicles table.
 
     const [createdOrderCol] = await conn.query(
@@ -873,7 +896,7 @@ app.post("/login", async (req, res) => {
 
   try {
     const [rows] = await pool.query(
-      "SELECT id,username,role FROM users WHERE username=? AND password=? LIMIT 1",
+      "SELECT id,username,role FROM mst_users WHERE username=? AND password=? LIMIT 1",
       [username, password]
     );
 
@@ -1270,7 +1293,7 @@ app.get("/floorplan-inventory", async (req,res)=>{
       roomId = parseInt(String(roomIdParam), 10);
     } else {
       const [roomRecord] = await pool.query(
-        "SELECT id FROM mst_room WHERE LOWER(TRIM(room_name)) = LOWER(TRIM(?)) LIMIT 1",
+        "SELECT id, building_id FROM mst_room WHERE LOWER(TRIM(room_name)) = LOWER(TRIM(?)) LIMIT 1",
         [roomIdParam]
       );
       if (!roomRecord.length) {
@@ -1279,8 +1302,174 @@ app.get("/floorplan-inventory", async (req,res)=>{
       roomId = roomRecord[0].id;
     }
 
-    const [rows] = await pool.query("SELECT * FROM inventory WHERE room_id=? ORDER BY id ASC", [roomId]);
-    res.json({success:true,inventory:rows});
+    const [[roomInfo]] = await pool.query(
+      "SELECT building_id FROM mst_room WHERE id = ? LIMIT 1",
+      [roomId]
+    );
+    const roomBuildingId = roomInfo?.building_id || null;
+
+    const [cubicles] = await pool.query(
+      "SELECT id, label FROM mst_cubicles WHERE room_id = ? AND item_type != 'room' AND (label IS NULL OR label != '__ROOM__') ORDER BY created_order ASC, id ASC",
+      [roomId]
+    );
+
+    const inventoryByLabel = {};
+    const cubicleLabelsById = new Map();
+    (cubicles || []).forEach((cub) => {
+      const label = String(cub.label || '');
+      inventoryByLabel[label] = {
+        label,
+        monitors: 0,
+        headsets: 0,
+        cameras: 0,
+        mouse: 0,
+        keyboards: 0,
+        computers: 0,
+        assignedUsers: ''
+      };
+      cubicleLabelsById.set(Number(cub.id), label);
+    });
+
+    const [rows] = await pool.query(
+      `SELECT
+         c.label,
+         i.item_type,
+         COUNT(*) AS count
+       FROM mst_item i
+       INNER JOIN mst_cubicles c ON c.id = i.cubicle_id
+       WHERE i.room_id = ? AND i.cubicle_id IS NOT NULL
+       GROUP BY c.label, i.item_type
+       ORDER BY c.label ASC, i.item_type ASC`,
+      [roomId]
+    );
+
+    if (Array.isArray(rows)) {
+      rows.forEach((row) => {
+        const label = String(row.label || '');
+        if (!inventoryByLabel[label]) {
+          inventoryByLabel[label] = {
+            label,
+            monitors: 0,
+            headsets: 0,
+            cameras: 0,
+            mouse: 0,
+            keyboards: 0,
+            computers: 0,
+            assignedUsers: '',
+            itemNames: []
+          };
+        }
+        const itemType = (row.item_type || '').toLowerCase();
+        const count = Number(row.count || 0);
+
+        if (itemType === 'monitor') inventoryByLabel[label].monitors = count;
+        else if (itemType === 'headset') inventoryByLabel[label].headsets = count;
+        else if (itemType === 'camera') inventoryByLabel[label].cameras = count;
+        else if (itemType === 'mouse') inventoryByLabel[label].mouse = count;
+        else if (itemType === 'keyboard') inventoryByLabel[label].keyboards = count;
+        else if (itemType === 'computer') inventoryByLabel[label].computers = count;
+      });
+    }
+
+    const [itemRows] = await pool.query(
+      `SELECT c.label,
+              i.item_type,
+              i.code
+       FROM mst_item i
+       INNER JOIN mst_cubicles c ON c.id = i.cubicle_id
+       WHERE i.room_id = ? AND i.cubicle_id IS NOT NULL
+       ORDER BY c.label ASC, i.item_type ASC, i.code ASC`,
+      [roomId]
+    );
+
+    if (Array.isArray(itemRows)) {
+      itemRows.forEach((row) => {
+        const label = String(row.label || '');
+        const itemType = String(row.item_type || '').trim();
+        const code = String(row.code || '').trim();
+        const itemName = itemType && code ? `${itemType.charAt(0).toUpperCase()}${itemType.slice(1)}: ${code}` : '';
+        if (!itemName) return;
+        if (!inventoryByLabel[label]) {
+          inventoryByLabel[label] = {
+            label,
+            monitors: 0,
+            headsets: 0,
+            cameras: 0,
+            mouse: 0,
+            keyboards: 0,
+            computers: 0,
+            assignedUsers: '',
+            itemNames: []
+          };
+        }
+        if (!Array.isArray(inventoryByLabel[label].itemNames)) {
+          inventoryByLabel[label].itemNames = [];
+        }
+        inventoryByLabel[label].itemNames.push(itemName);
+      });
+    }
+
+    const [users] = await pool.query(
+      `SELECT username, cubicle_id, room_id, building_id
+       FROM mst_users
+       WHERE cubicle_id IS NOT NULL OR room_id = ? OR building_id = ?`,
+      [roomId, roomBuildingId]
+    );
+
+    const assignedByLabel = new Map();
+    if (Array.isArray(users)) {
+      users.forEach((user) => {
+        const username = String(user.username || '').trim();
+        if (!username) return;
+
+        if (user.cubicle_id != null) {
+          const label = cubicleLabelsById.get(Number(user.cubicle_id));
+          if (label !== undefined) {
+            const set = assignedByLabel.get(label) || new Set();
+            set.add(username);
+            assignedByLabel.set(label, set);
+          }
+        } else if (Number(user.room_id) === roomId) {
+          cubicles.forEach((cub) => {
+            const label = String(cub.label || '');
+            const set = assignedByLabel.get(label) || new Set();
+            set.add(username);
+            assignedByLabel.set(label, set);
+          });
+        } else if (roomBuildingId != null && Number(user.building_id) === Number(roomBuildingId)) {
+          cubicles.forEach((cub) => {
+            const label = String(cub.label || '');
+            const set = assignedByLabel.get(label) || new Set();
+            set.add(username);
+            assignedByLabel.set(label, set);
+          });
+        }
+      });
+    }
+
+    for (const [label, set] of assignedByLabel.entries()) {
+      const value = Array.from(set).join(', ');
+      if (!inventoryByLabel[label]) {
+        inventoryByLabel[label] = {
+          label,
+          monitors: 0,
+          headsets: 0,
+          cameras: 0,
+          mouse: 0,
+          keyboards: 0,
+          computers: 0,
+          assignedUsers: value
+        };
+      } else {
+        inventoryByLabel[label].assignedUsers = value;
+      }
+    }
+
+    const inventory = Object.values(inventoryByLabel).map((row) => ({
+      ...row,
+      itemNames: Array.isArray(row.itemNames) ? Array.from(new Set(row.itemNames)) : []
+    }));
+    res.json({ success: true, inventory });
   } catch(e){
     console.error(e);
     res.status(500).json({success:false,error:"Server error listing inventory"});
@@ -1368,6 +1557,90 @@ app.post("/api/buildings", async (req, res) => {
   }
 });
 
+app.delete("/api/buildings/:buildingId", async (req, res) => {
+  const buildingId = Number(req.params.buildingId);
+  if (!Number.isFinite(buildingId) || buildingId <= 0) {
+    return res.status(400).json({ success: false, error: "Invalid buildingId" });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [itemCountRows] = await conn.query(
+      "SELECT COUNT(*) AS count FROM mst_item WHERE building_id = ?",
+      [buildingId]
+    );
+    const itemCount = Number(itemCountRows[0]?.count || 0);
+    if (itemCount > 0) {
+      await conn.rollback();
+      return res.status(400).json({
+        success: false,
+        error: "Cannot delete building while inventory items are assigned to it. Move or reassign inventory first.",
+      });
+    }
+
+    const [roomRows] = await conn.query(
+      "SELECT id FROM mst_room WHERE building_id = ?",
+      [buildingId]
+    );
+    const roomIds = Array.isArray(roomRows) ? roomRows.map((row) => row.id) : [];
+
+    if (roomIds.length) {
+      await conn.query("DELETE FROM mst_cubicles WHERE room_id IN (?)", [roomIds]);
+      await conn.query("DELETE FROM mst_room WHERE id IN (?)", [roomIds]);
+    }
+
+    const [result] = await conn.query(
+      "DELETE FROM mst_building WHERE id = ?",
+      [buildingId]
+    );
+
+    await conn.commit();
+    res.json({ success: true, deleted: result.affectedRows });
+  } catch (e) {
+    await conn.rollback();
+    console.error("❌ /api/buildings DELETE error:", e);
+    res.status(500).json({ success: false, error: "Server error deleting building" });
+  } finally {
+    conn.release();
+  }
+});
+
+app.delete("/api/buildings/:buildingId/rooms/:roomId", async (req, res) => {
+  const buildingId = Number(req.params.buildingId);
+  const roomId = Number(req.params.roomId);
+  if (!Number.isFinite(buildingId) || buildingId <= 0) {
+    return res.status(400).json({ success: false, error: "Invalid buildingId" });
+  }
+  if (!Number.isFinite(roomId) || roomId <= 0) {
+    return res.status(400).json({ success: false, error: "Invalid roomId" });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    const [roomRows] = await conn.query(
+      "SELECT id FROM mst_room WHERE id = ? AND building_id = ? LIMIT 1",
+      [roomId, buildingId]
+    );
+    if (!roomRows.length) {
+      return res.status(404).json({ success: false, error: "Room not found for this building" });
+    }
+
+    const [result] = await conn.query(
+      "DELETE FROM mst_room WHERE id = ?",
+      [roomId]
+    );
+
+    return res.json({ success: true, deleted: result.affectedRows });
+  } catch (e) {
+    console.error("❌ /api/buildings/:buildingId/rooms/:roomId DELETE error:", e);
+    res.status(500).json({ success: false, error: "Server error deleting room" });
+  } finally {
+    conn.release();
+  }
+});
+
 /* =========================
    BUILDING ROOMS (mst_room)
 ========================= */
@@ -1403,6 +1676,163 @@ app.get("/api/buildings/:buildingId/rooms", async (req, res) => {
   } catch (e) {
     console.error("❌ /api/buildings/:buildingId/rooms GET error:", e);
     return res.status(500).json({ success: false, error: "Server error listing rooms" });
+  }
+});
+
+app.get('/api/rooms/:roomId/cubicles', async (req, res) => {
+  const roomId = Number(req.params.roomId);
+  if (!Number.isFinite(roomId) || roomId <= 0) {
+    return res.status(400).json({ success: false, error: 'Invalid roomId' });
+  }
+
+  try {
+    const [cubicleRows] = await pool.query(
+      "SELECT id, label FROM mst_cubicles WHERE room_id = ? AND item_type != 'room' AND (label IS NULL OR label != '__ROOM__') ORDER BY created_order ASC, id ASC",
+      [roomId]
+    );
+
+    const cubicleLabelsById = new Map();
+    const assignedByLabel = new Map();
+    (cubicleRows || []).forEach((cub) => {
+      const label = String(cub.label || '');
+      cubicleLabelsById.set(Number(cub.id), label);
+      assignedByLabel.set(label, new Set());
+    });
+
+    const [[roomInfo]] = await pool.query(
+      'SELECT building_id FROM mst_room WHERE id = ? LIMIT 1',
+      [roomId]
+    );
+    const roomBuildingId = roomInfo?.building_id || null;
+
+    const [userRows] = await pool.query(
+      `SELECT username, cubicle_id, room_id, building_id
+       FROM mst_users
+       WHERE cubicle_id IS NOT NULL OR room_id = ? OR building_id = ?`,
+      [roomId, roomBuildingId]
+    );
+
+    if (Array.isArray(userRows)) {
+      userRows.forEach((user) => {
+        const username = String(user.username || '').trim();
+        if (!username) return;
+
+        if (user.cubicle_id != null) {
+          const label = cubicleLabelsById.get(Number(user.cubicle_id));
+          if (label !== undefined) {
+            assignedByLabel.get(label)?.add(username);
+          }
+        } else if (Number(user.room_id) === roomId || (roomBuildingId != null && Number(user.building_id) === Number(roomBuildingId))) {
+          cubicleLabelsById.forEach((label) => {
+            assignedByLabel.get(label)?.add(username);
+          });
+        }
+      });
+    }
+
+    const cubicles = (cubicleRows || []).map((row) => {
+      const label = String(row.label || '');
+      const assignedUsers = Array.from(assignedByLabel.get(label) || []).join(', ');
+      return {
+        id: row.id,
+        label,
+        assignedUser: assignedUsers || null,
+      };
+    });
+
+    res.json({ success: true, cubicles });
+  } catch (e) {
+    console.error('❌ /api/rooms/:roomId/cubicles GET error:', e);
+    res.status(500).json({ success: false, error: 'Server error listing cubicles' });
+  }
+});
+
+// Transfer items between cubicles in the same room
+app.post('/api/transfer-items', async (req, res) => {
+  const { roomId, fromLabel, toCubicleId, itemTypes, transferAssignedUser } = req.body || {};
+  const moveAssignedUser = Boolean(transferAssignedUser);
+
+  if (!roomId) return res.status(400).json({ success: false, error: 'roomId required' });
+  if (!fromLabel || !toCubicleId) return res.status(400).json({ success: false, error: 'fromLabel and toCubicleId required' });
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    // resolve source cubicle id and assigned user
+    const [fromRows] = await conn.query(
+      'SELECT id, user_id FROM mst_cubicles WHERE room_id = ? AND LOWER(TRIM(label)) = LOWER(TRIM(?)) LIMIT 1',
+      [roomId, String(fromLabel || '').trim()]
+    );
+    if (!fromRows.length) {
+      await conn.rollback();
+      return res.status(404).json({ success: false, error: 'Source cubicle not found' });
+    }
+    const fromCubicleId = Number(fromRows[0].id);
+    const sourceAssignedUser = fromRows[0].user_id || null;
+
+    // validate target cubicle belongs to room
+    const [toRows] = await conn.query('SELECT id, room_id FROM mst_cubicles WHERE id = ? AND room_id = ? LIMIT 1', [toCubicleId, roomId]);
+    if (!toRows.length) {
+      await conn.rollback();
+      return res.status(404).json({ success: false, error: 'Target cubicle not found in room' });
+    }
+    const targetRoomId = Number(toRows[0].room_id);
+
+    const [roomRows] = await conn.query('SELECT building_id FROM mst_room WHERE id = ? LIMIT 1', [targetRoomId]);
+    const targetBuildingId = roomRows.length ? roomRows[0].building_id || null : null;
+
+    // find item codes that will be moved
+    let selectSql = 'SELECT code FROM mst_item WHERE room_id = ? AND cubicle_id = ?';
+    const params = [roomId, fromCubicleId];
+    if (Array.isArray(itemTypes) && itemTypes.length) {
+      const placeholders = itemTypes.map(() => '?').join(',');
+      selectSql += ` AND LOWER(item_type) IN (${placeholders})`;
+      params.push(...itemTypes.map((t) => String(t).toLowerCase()));
+    }
+    const [toMoveRows] = await conn.query(selectSql, params);
+
+    // perform update to reassign items
+    let updateSql = 'UPDATE mst_item SET cubicle_id = ?, room_id = ? WHERE room_id = ? AND cubicle_id = ?';
+    const updateParams = [toCubicleId, roomId, roomId, fromCubicleId];
+    if (Array.isArray(itemTypes) && itemTypes.length) {
+      const placeholders = itemTypes.map(() => '?').join(',');
+      updateSql += ` AND LOWER(item_type) IN (${placeholders})`;
+      updateParams.push(...itemTypes.map((t) => String(t).toLowerCase()));
+    }
+
+    await conn.query(updateSql, updateParams);
+
+    if (moveAssignedUser) {
+      await conn.query(
+        'UPDATE mst_users SET cubicle_id = ?, room_id = ?, building_id = ? WHERE cubicle_id = ?',
+        [toCubicleId, targetRoomId, targetBuildingId, fromCubicleId]
+      );
+      if (sourceAssignedUser) {
+        await conn.query('UPDATE mst_cubicles SET user_id = ? WHERE id = ?', [sourceAssignedUser, toCubicleId]);
+        await conn.query('UPDATE mst_cubicles SET user_id = NULL WHERE id = ?', [fromCubicleId]);
+      }
+    }
+
+    // update location text for moved items
+    if (Array.isArray(toMoveRows) && toMoveRows.length) {
+      for (const r of toMoveRows) {
+        try {
+          await updateItemLocation(conn, 'mst_item', r.code);
+        } catch (e) {
+          console.warn('Failed updating item location for', r.code, e);
+        }
+      }
+    }
+
+    await conn.commit();
+    return res.json({ success: true, moved: Array.isArray(toMoveRows) ? toMoveRows.length : 0 });
+  } catch (e) {
+    await conn.rollback();
+    console.error('❌ /api/transfer-items error', e);
+    return res.status(500).json({ success: false, error: 'Server error transferring items' });
+  } finally {
+    conn.release();
   }
 });
 
@@ -1618,6 +2048,157 @@ app.post('/api/items', async (req, res) => {
 app.post('/api/items/import', async (req, res) => {
   // Importing master items is disabled in this build
   res.status(410).json({ success: false, error: 'Endpoint not supported' });
+});
+
+app.get('/api/users', async (_req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    const [rows] = await conn.query(
+      `SELECT
+         u.*, 
+         b.building_name AS building_name,
+         r.room_name AS room_name,
+         c.label AS cubicle_label
+       FROM mst_users u
+       LEFT JOIN mst_building b ON b.id = u.building_id
+       LEFT JOIN mst_room r ON r.id = u.room_id
+       LEFT JOIN mst_cubicles c ON c.id = u.cubicle_id
+       ORDER BY u.id ASC`
+    );
+    res.json({ success: true, users: rows });
+  } catch (e) {
+    console.error('❌ /api/users error', e);
+    res.status(500).json({ success: false, error: 'Server error' });
+  } finally {
+    conn.release();
+  }
+});
+
+app.post('/api/users/import', async (req, res) => {
+  let rows = [];
+  if (Array.isArray(req.body)) {
+    rows = req.body;
+  } else if (req.body && Array.isArray(req.body.csvData)) {
+    rows = req.body.csvData;
+  } else if (typeof req.body === 'string') {
+    rows = parseCSVTextToObjects(req.body);
+  }
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return res.json({ success: true, imported: 0, skipped: 0 });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    const [columns] = await conn.query('SHOW COLUMNS FROM mst_users');
+    const validColumns = columns.map((col) => col.Field);
+
+    const normalizedRows = rows.map((row) => {
+      const normalized = {};
+      for (const header of Object.keys(row)) {
+        const column = String(header || '')
+          .trim()
+          .toLowerCase()
+          .replace(/\s+/g, '_')
+          .replace(/[^a-z0-9_]/g, '');
+        if (!column || !validColumns.includes(column)) continue;
+        normalized[column] = row[header];
+      }
+      return normalized;
+    }).filter((row) => Object.keys(row).length > 0);
+
+    if (normalizedRows.length === 0) {
+      return res.status(400).json({ success: false, error: 'No valid mst_users columns found in CSV headers.' });
+    }
+
+    const insertColumns = Object.keys(normalizedRows[0]);
+    if (insertColumns.length === 0) {
+      return res.status(400).json({ success: false, error: 'No valid columns to insert.' });
+    }
+
+    const columnSql = insertColumns.map((col) => `\`${col}\``).join(', ');
+    const placeholders = normalizedRows
+      .map((row) => `(${insertColumns.map(() => '?').join(', ')})`)
+      .join(', ');
+    const values = normalizedRows.flatMap((row) =>
+      insertColumns.map((col) => row[col] ?? null)
+    );
+
+    await conn.query(
+      `INSERT IGNORE INTO mst_users (${columnSql}) VALUES ${placeholders}`,
+      values
+    );
+
+    res.json({ success: true, imported: normalizedRows.length, skipped: 0 });
+  } catch (e) {
+    console.error('❌ /api/users/import error', e);
+    res.status(500).json({ success: false, error: 'Server error' });
+  } finally {
+    conn.release();
+  }
+});
+
+app.post('/api/users/:id/assign-location', async (req, res) => {
+  const userId = Number(req.params.id);
+  const { building_id, room_id, cubicle_id, cubicle_label } = req.body || {};
+
+  if (!Number.isFinite(userId) || userId <= 0) {
+    return res.status(400).json({ success: false, error: 'Invalid user ID' });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    const [existing] = await conn.query('SELECT id FROM mst_users WHERE id = ? LIMIT 1', [userId]);
+    if (!existing.length) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    let resolvedBuildingId = Number.isFinite(Number(building_id)) ? Number(building_id) : null;
+    let resolvedRoomId = Number.isFinite(Number(room_id)) ? Number(room_id) : null;
+    let resolvedCubicleId = Number.isFinite(Number(cubicle_id)) ? Number(cubicle_id) : null;
+
+    if (cubicle_label && !resolvedRoomId) {
+      return res.status(400).json({ success: false, error: 'room_id is required when assigning a cubicle label' });
+    }
+
+    if (cubicle_label && resolvedRoomId) {
+      const [cubRows] = await conn.query(
+        'SELECT id FROM mst_cubicles WHERE room_id = ? AND LOWER(TRIM(label)) = LOWER(TRIM(?)) LIMIT 1',
+        [resolvedRoomId, String(cubicle_label || '').trim()]
+      );
+      if (!cubRows.length) {
+        return res.status(404).json({ success: false, error: 'Cubicle not found for given room and label' });
+      }
+      resolvedCubicleId = cubRows[0].id;
+    }
+
+    if (resolvedCubicleId && !resolvedRoomId) {
+      const [cubRows] = await conn.query('SELECT room_id FROM mst_cubicles WHERE id = ? LIMIT 1', [resolvedCubicleId]);
+      if (cubRows.length) {
+        resolvedRoomId = cubRows[0].room_id;
+      }
+    }
+
+    if (resolvedRoomId && !resolvedBuildingId) {
+      const [roomRows] = await conn.query('SELECT building_id FROM mst_room WHERE id = ? LIMIT 1', [resolvedRoomId]);
+      if (roomRows.length) {
+        resolvedBuildingId = roomRows[0].building_id || null;
+      }
+    }
+
+    await conn.query(
+      'UPDATE mst_users SET building_id = ?, room_id = ?, cubicle_id = ? WHERE id = ?',
+      [resolvedBuildingId, resolvedRoomId, resolvedCubicleId, userId]
+    );
+
+    const [updatedRows] = await conn.query('SELECT * FROM mst_users WHERE id = ? LIMIT 1', [userId]);
+    res.json({ success: true, user: updatedRows[0] || null });
+  } catch (e) {
+    console.error('❌ /api/users/:id/assign-location error', e);
+    res.status(500).json({ success: false, error: 'Server error' });
+  } finally {
+    conn.release();
+  }
 });
 
 app.post('/api/inventory/:type/import', async (req, res) => {
