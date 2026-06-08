@@ -149,7 +149,9 @@ export class ItInventoryPage implements OnInit {
       { key: 'status', label: 'STATUS' },
       { key: 'details', label: 'DETAILS' },
       { key: 'brand', label: 'BRAND' },
-      { key: 'location', label: 'LOCATION' }
+      { key: 'building', label: 'BUILDING' },
+      { key: 'room', label: 'ROOM' },
+      { key: 'cubicle', label: 'CUBICLE' }
     ];
 
     this.inventoryService.getItems(this.assetType).subscribe(
@@ -173,7 +175,9 @@ export class ItInventoryPage implements OnInit {
               status: this.mapItemStatus(it.status),
               details,
               brand,
-              location: it.location || ''
+              building: it.building_name || '',
+              room: it.room_name || '',
+              cubicle: it.cubicle_label || ''
             } as Record<string, any>;
           });
         } else {
@@ -279,7 +283,30 @@ export class ItInventoryPage implements OnInit {
       if (!text) return;
       try {
         const csvData = this.parseCSV(text);
-        alert(`Import disabled in this UI-only build. Parsed ${csvData.length} rows.`);
+        if (!csvData.length) {
+          alert('No rows found in the selected CSV.');
+          return;
+        }
+
+        const importOp = this.assetType
+          ? this.inventoryService.importItems(this.assetType, csvData)
+          : this.inventoryService.importBulkItems(csvData);
+
+        importOp.subscribe(
+          (res) => {
+            if (res && res.success) {
+              alert(`Import completed: ${res.imported} imported, ${res.skipped} skipped.`);
+              this.loadAssetData();
+            } else {
+              const errorText = Array.isArray(res?.errors) ? res.errors.join(', ') : 'Unknown error';
+              alert(`Import failed: ${errorText}`);
+            }
+          },
+          (err) => {
+            console.error('Import error', err);
+            alert(`Import failed: ${err?.error?.error || err.message || 'Server error'}`);
+          }
+        );
       } catch (err) {
         console.error('CSV parse error', err);
         alert('Failed to parse CSV');

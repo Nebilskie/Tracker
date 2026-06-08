@@ -520,6 +520,312 @@ function parseCSVLineToArray(line) {
   return result.map(s => s.trim());
 }
 
+function normalizeInventoryHeader(header) {
+  return String(header || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/[^a-z0-9_]/g, '');
+}
+
+function getCanonicalInventoryKey(key) {
+  switch (String(key || '').trim().toLowerCase()) {
+    case 'type':
+    case 'itemtype':
+    case 'item-type':
+    case 'category':
+      return 'item_type';
+    case 'itemdetails':
+    case 'details':
+      return 'item_details';
+    case 'itemcode':
+    case 'item_code':
+    case 'name':
+      return 'code';
+    case 'brand':
+    case 'make':
+      return 'brand_name';
+    case 'building':
+      return 'building_name';
+    case 'room':
+      return 'room_name';
+    case 'cubicle':
+    case 'cubicle_label':
+      return 'cubicle_id';
+    case 'serial':
+      return 'serial_number';
+    default:
+      return key;
+  }
+}
+
+function parseInventoryStatus(status) {
+  const normalized = String(status ?? '').trim().toUpperCase();
+  if (normalized === '') return null;
+  if (['0', 'DEFECT', 'DEFECTS', 'DEFECTIVE'].includes(normalized)) return 0;
+  if (['1', 'AVAILABLE'].includes(normalized)) return 1;
+  if (['2', 'USED', 'IN_USE'].includes(normalized)) return 2;
+  const asNumber = Number(normalized);
+  return Number.isFinite(asNumber) ? asNumber : null;
+}
+
+async function getOrCreateBrandId(conn, brandName) {
+  const normalized = String(brandName || '').trim();
+  if (!normalized) return null;
+  const [rows] = await conn.query(
+    'SELECT id FROM mst_brand WHERE LOWER(TRIM(brand_name)) = LOWER(TRIM(?)) LIMIT 1',
+    [normalized]
+  );
+  if (rows.length) return rows[0].id;
+  const [insertResult] = await conn.query(
+    'INSERT IGNORE INTO mst_brand (brand_name) VALUES (?)',
+    [normalized]
+  );
+  if (insertResult.insertId) return insertResult.insertId;
+  const [recheck] = await conn.query(
+    'SELECT id FROM mst_brand WHERE LOWER(TRIM(brand_name)) = LOWER(TRIM(?)) LIMIT 1',
+    [normalized]
+  );
+  return recheck?.[0]?.id || null;
+}
+
+async function getOrCreateBuildingId(conn, buildingName, defaultBuildingId) {
+  const normalized = String(buildingName || '').trim();
+  if (!normalized) return defaultBuildingId;
+  const [rows] = await conn.query(
+    "SELECT id FROM mst_building WHERE LOWER(TRIM(building_name)) = LOWER(TRIM(?)) LIMIT 1",
+    [normalized]
+  );
+  if (rows.length) return rows[0].id;
+  const [insertResult] = await conn.query(
+    "INSERT IGNORE INTO mst_building (user_id, building_name) VALUES ('GLOBAL', ?) ",
+    [normalized]
+  );
+  if (insertResult.insertId) return insertResult.insertId;
+  const [recheck] = await conn.query(
+    "SELECT id FROM mst_building WHERE LOWER(TRIM(building_name)) = LOWER(TRIM(?)) LIMIT 1",
+    [normalized]
+  );
+  return recheck?.[0]?.id || defaultBuildingId;
+}
+
+async function getOrCreateRoomId(conn, roomName, buildingId = null) {
+  const normalized = String(roomName || '').trim();
+  if (!normalized) return null;
+
+  let query = "SELECT id FROM mst_room WHERE LOWER(TRIM(room_name)) = LOWER(TRIM(?))";
+  const params = [normalized];
+  if (buildingId != null) {
+    query += " AND building_id = ?";
+    params.push(buildingId);
+  }
+  query += " LIMIT 1";
+
+  const [rows] = await conn.query(query, params);
+  if (rows.length) return rows[0].id;
+
+  if (buildingId != null) {
+    const [insertResult] = await conn.query(
+      "INSERT IGNORE INTO mst_room (user_id, building_id, room_name) VALUES ('GLOBAL', ?, ?)",
+      [buildingId, normalized]
+    );
+    if (insertResult.insertId) return insertResult.insertId;
+  } else {
+    const [insertResult] = await conn.query(
+      "INSERT IGNORE INTO mst_room (user_id, room_name) VALUES ('GLOBAL', ?) ",
+      [normalized]
+    );
+    if (insertResult.insertId) return insertResult.insertId;
+  }
+
+  let recheckQuery = "SELECT id FROM mst_room WHERE LOWER(TRIM(room_name)) = LOWER(TRIM(?))";
+  const recheckParams = [normalized];
+  if (buildingId != null) {
+    recheckQuery += " AND building_id = ?";
+    recheckParams.push(buildingId);
+  }
+  recheckQuery += " LIMIT 1";
+
+  const [recheck] = await conn.query(recheckQuery, recheckParams);
+  return recheck?.[0]?.id || null;
+}
+
+async function normalizeAndInsertInventoryRows(conn, rows, typeParam) {
+  const [columns] = await conn.query('SHOW COLUMNS FROM mst_item');
+  const validColumns = columns.map((col) => col.Field);
+
+  let [storageRows] = await conn.query(
+    "SELECT id FROM mst_building WHERE user_id = 'GLOBAL' AND LOWER(TRIM(building_name)) = 'storage' LIMIT 1"
+  );
+  let storageBuildingId = storageRows?.[0]?.id || null;
+  if (!storageBuildingId) {
+    const [insertStorage] = await conn.query(
+      "INSERT IGNORE INTO mst_building (user_id, building_name) VALUES ('GLOBAL', 'storage')"
+    );
+    storageBuildingId = insertStorage.insertId || null;
+    if (!storageBuildingId) {
+      const [recheck] = await conn.query(
+        "SELECT id FROM mst_building WHERE user_id = 'GLOBAL' AND LOWER(TRIM(building_name)) = 'storage' LIMIT 1"
+      );
+      storageBuildingId = recheck?.[0]?.id || null;
+    }
+  }
+
+  const normalizedRows = [];
+  for (const row of rows) {
+    const normalized = {};
+    for (const header of Object.keys(row || {})) {
+      const rawKey = normalizeInventoryHeader(header);
+      if (!rawKey) continue;
+      const key = getCanonicalInventoryKey(rawKey);
+      const value = row[header];
+      normalized[key] = typeof value === 'string' ? value.trim() : value;
+    }
+
+    if (typeParam) {
+      normalized.item_type = typeParam;
+    }
+
+    if (!normalized.item_type || !normalized.code) {
+      continue;
+    }
+
+    // Prefer building resolved from building_name when provided
+    if (normalized.building_name) {
+      normalized.building_id = await getOrCreateBuildingId(conn, normalized.building_name, storageBuildingId);
+    }
+
+    // Resolve room by name if provided, preserving any building association
+    if (normalized.room_name) {
+      normalized.room_id = await getOrCreateRoomId(conn, normalized.room_name, normalized.building_id);
+    }
+
+    if (normalized.status != null) {
+      const statusValue = parseInventoryStatus(normalized.status);
+      if (statusValue !== null) normalized.status = statusValue;
+      else delete normalized.status;
+    }
+
+    // Parse numeric IDs
+    if (normalized.brand_id != null) {
+      const parsed = Number(normalized.brand_id);
+      normalized.brand_id = Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    }
+    if (normalized.building_id != null) {
+      const parsed = Number(normalized.building_id);
+      normalized.building_id = Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    }
+    if (normalized.room_id != null) {
+      const parsed = Number(normalized.room_id);
+      normalized.room_id = Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    }
+
+    // If room_id is present, prefer the room's building_id (guarantees correct mst_building.id)
+    if (normalized.room_id) {
+      const [roomRows] = await conn.query('SELECT building_id FROM mst_room WHERE id = ? LIMIT 1', [normalized.room_id]);
+      if (roomRows.length && roomRows[0].building_id) {
+        normalized.building_id = roomRows[0].building_id;
+      }
+    }
+
+    // Ensure building_id falls back to storage if still missing
+    if (!normalized.building_id) {
+      normalized.building_id = storageBuildingId;
+    }
+
+    // Cubicle may be provided as an ID or as a label (e.g. 'C1'). Resolve label to id when possible.
+    if (normalized.cubicle_id != null) {
+        // numeric?
+        const parsed = Number(normalized.cubicle_id);
+        if (Number.isFinite(parsed) && parsed > 0) {
+          normalized.cubicle_id = parsed;
+        } else {
+          // try to resolve by label within the provided room, then globally
+          const label = String(normalized.cubicle_id || '').trim();
+          let foundId = null;
+          if (label) {
+            if (normalized.room_id) {
+              const [rows] = await conn.query(
+                'SELECT id FROM mst_cubicles WHERE room_id = ? AND LOWER(TRIM(label)) = LOWER(TRIM(?)) LIMIT 1',
+                [normalized.room_id, label]
+              );
+              if (rows.length) foundId = rows[0].id;
+            }
+            if (!foundId) {
+              const [rows2] = await conn.query(
+                'SELECT id FROM mst_cubicles WHERE LOWER(TRIM(label)) = LOWER(TRIM(?)) LIMIT 1',
+                [label]
+              );
+              if (rows2.length) foundId = rows2[0].id;
+            }
+          }
+          normalized.cubicle_id = foundId || null;
+        }
+      }
+
+    const filtered = {};
+    for (const key of Object.keys(normalized)) {
+      if (validColumns.includes(key)) {
+        filtered[key] = normalized[key];
+      }
+    }
+    if (Object.keys(filtered).length === 0) continue;
+    normalizedRows.push(filtered);
+  }
+
+  if (!normalizedRows.length) {
+    return { success: true, imported: 0, skipped: rows.length };
+  }
+
+  const insertColumns = Array.from(
+    normalizedRows.reduce((set, row) => {
+      Object.keys(row).forEach((col) => set.add(col));
+      return set;
+    }, new Set())
+  );
+
+  const columnSql = insertColumns.map((col) => `\`${col}\``).join(', ');
+  const placeholders = normalizedRows
+    .map((row) => `(${insertColumns.map(() => '?').join(', ')})`)
+    .join(', ');
+  const values = normalizedRows.flatMap((row) => insertColumns.map((col) => row[col] ?? null));
+
+  const [result] = await conn.query(
+    `INSERT IGNORE INTO mst_item (${columnSql}) VALUES ${placeholders}`,
+    values
+  );
+
+  const imported = Number(result.affectedRows || 0);
+  const skipped = normalizedRows.length - imported;
+  return { success: true, imported, skipped };
+}
+
+app.post('/api/admin/fix-item-building-ids', async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    const [rows] = await conn.query('SELECT id, room_id, building_id FROM mst_item WHERE room_id IS NOT NULL');
+    let updated = 0;
+    for (const r of rows) {
+      const itemId = r.id;
+      const roomId = r.room_id;
+      const currentBuilding = r.building_id;
+      if (!roomId) continue;
+      const [roomRows] = await conn.query('SELECT building_id FROM mst_room WHERE id = ? LIMIT 1', [roomId]);
+      const roomBuilding = roomRows?.[0]?.building_id || null;
+      if (roomBuilding && Number(roomBuilding) !== Number(currentBuilding)) {
+        await conn.query('UPDATE mst_item SET building_id = ? WHERE id = ?', [roomBuilding, itemId]);
+        updated++;
+      }
+    }
+    res.json({ success: true, updated });
+  } catch (e) {
+    console.error('❌ /api/admin/fix-item-building-ids error', e);
+    res.status(500).json({ success: false, error: 'Server error' });
+  } finally {
+    conn.release();
+  }
+});
+
 /* =========================
    HELPERS
 ========================= */
@@ -576,18 +882,24 @@ function extractCubicleLabel(requestText) {
 async function setFloorplanInventoryValue(conn, roomId, label, itemType, itemCode) {
   if (!roomId || !label || !itemType) return;
 
-  // Find cubicle id for the label
+  // Find cubicle id for the label inside the target room
   const [cubRows] = await conn.query(
-    "SELECT id FROM mst_cubicles WHERE label = ? LIMIT 1",
-    [label]
+    "SELECT id FROM mst_cubicles WHERE room_id = ? AND label = ? LIMIT 1",
+    [roomId, label]
   );
   const cubicleId = cubRows?.[0]?.id || null;
 
+  let resolvedBuildingId = null;
+  if (roomId) {
+    const [roomRows] = await conn.query("SELECT building_id FROM mst_room WHERE id = ? LIMIT 1", [roomId]);
+    resolvedBuildingId = roomRows?.[0]?.building_id || null;
+  }
+
   if (itemCode) {
-    // assign the item to the cubicle
+    // assign the item to the cubicle and keep its building_id in sync with the room
     await conn.query(
-      `UPDATE mst_item SET room_id = ?, cubicle_id = ?, last_update = CURRENT_TIMESTAMP WHERE item_type = ? AND code = ?`,
-      [roomId, cubicleId, itemType, itemCode]
+      `UPDATE mst_item SET room_id = ?, cubicle_id = ?, building_id = ?, last_update = CURRENT_TIMESTAMP WHERE item_type = ? AND code = ?`,
+      [roomId, cubicleId, resolvedBuildingId, itemType, itemCode]
     );
   } else {
     // clear assignment for any item of this type assigned to this cubicle
@@ -862,6 +1174,7 @@ async function updateItemLocation(conn, table, itemName) {
   const item = items[0];
 
   let location = null;
+  let resolvedBuildingId = null;
 
   if (item.cubicle_id) {
     const [cub] = await conn.query(
@@ -870,21 +1183,23 @@ async function updateItemLocation(conn, table, itemName) {
     );
     if (cub.length) {
       const [rr] = await conn.query(
-        `SELECT room_name FROM mst_room WHERE id = ? LIMIT 1`,
+        `SELECT room_name, building_id FROM mst_room WHERE id = ? LIMIT 1`,
         [cub[0].room_id]
       );
       const roomName = rr?.[0]?.room_name || cub[0].room_id;
       location = `${cub[0].label} Room ${roomName}`;
+      resolvedBuildingId = rr?.[0]?.building_id || null;
     }
   } else if (item.room_id) {
-    const [roomRows] = await conn.query(`SELECT room_name FROM mst_room WHERE id = ? LIMIT 1`, [item.room_id]);
+    const [roomRows] = await conn.query(`SELECT room_name, building_id FROM mst_room WHERE id = ? LIMIT 1`, [item.room_id]);
     const roomName = roomRows?.[0]?.room_name || item.room_id;
     location = `Room ${roomName}`;
+    resolvedBuildingId = roomRows?.[0]?.building_id || null;
   }
 
   await conn.query(
-    `UPDATE mst_item SET location = ?, last_update = CURRENT_TIMESTAMP WHERE LOWER(code) = LOWER(?)`,
-    [location, itemName]
+    `UPDATE mst_item SET location = ?, building_id = COALESCE(?, building_id), last_update = CURRENT_TIMESTAMP WHERE LOWER(code) = LOWER(?)`,
+    [location, resolvedBuildingId, itemName]
   );
 }
 
@@ -949,6 +1264,9 @@ app.get('/api/inventory/:type', async (req, res) => {
               i.code,
               i.item_details,
               i.status,
+              bld.building_name AS building_name,
+              COALESCE(rm_item.room_name, rm_cub.room_name) AS room_name,
+              c.label AS cubicle_label,
               CASE
                 WHEN c.id IS NOT NULL AND COALESCE(rm_cub.room_name,'') <> '' THEN CONCAT(c.label, ' Room ', COALESCE(rm_cub.room_name,''))
                 WHEN i.room_id IS NOT NULL AND COALESCE(rm_item.room_name,'') <> '' THEN CONCAT('Room ', COALESCE(rm_item.room_name,''))
@@ -1793,8 +2111,8 @@ app.post('/api/transfer-items', async (req, res) => {
     const [toMoveRows] = await conn.query(selectSql, params);
 
     // perform update to reassign items
-    let updateSql = 'UPDATE mst_item SET cubicle_id = ?, room_id = ? WHERE room_id = ? AND cubicle_id = ?';
-    const updateParams = [toCubicleId, roomId, roomId, fromCubicleId];
+    let updateSql = 'UPDATE mst_item SET cubicle_id = ?, room_id = ?, building_id = ? WHERE room_id = ? AND cubicle_id = ?';
+    const updateParams = [toCubicleId, targetRoomId, targetBuildingId, roomId, fromCubicleId];
     if (Array.isArray(itemTypes) && itemTypes.length) {
       const placeholders = itemTypes.map(() => '?').join(',');
       updateSql += ` AND LOWER(item_type) IN (${placeholders})`;
@@ -2046,7 +2364,7 @@ app.post('/api/items', async (req, res) => {
 });
 
 app.post('/api/items/import', async (req, res) => {
-  // Importing master items is disabled in this build
+  // Importing master items is not supported by this endpoint in current build
   res.status(410).json({ success: false, error: 'Endpoint not supported' });
 });
 
@@ -2202,12 +2520,60 @@ app.post('/api/users/:id/assign-location', async (req, res) => {
 });
 
 app.post('/api/inventory/:type/import', async (req, res) => {
-  res.status(410).json({ success: false, error: 'Endpoint not supported' });
+  const typeParam = String(req.params.type || '').trim();
+  if (!typeParam) {
+    return res.status(400).json({ success: false, error: 'Missing inventory type in URL.' });
+  }
+
+  let rows = [];
+  if (Array.isArray(req.body)) {
+    rows = req.body;
+  } else if (req.body && Array.isArray(req.body.csvData)) {
+    rows = req.body.csvData;
+  } else if (typeof req.body === 'string') {
+    rows = parseCSVTextToObjects(req.body);
+  }
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return res.json({ success: true, imported: 0, skipped: 0 });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    const importedResult = await normalizeAndInsertInventoryRows(conn, rows, typeParam);
+    res.json(importedResult);
+  } catch (e) {
+    console.error('❌ /api/inventory/:type/import error', e);
+    res.status(500).json({ success: false, error: 'Server error' });
+  } finally {
+    conn.release();
+  }
 });
 
-// Bulk inventory import endpoint disabled
 app.post('/api/inventory/import', async (req, res) => {
-  res.status(410).json({ success: false, error: 'Endpoint not supported' });
+  let rows = [];
+  if (Array.isArray(req.body)) {
+    rows = req.body;
+  } else if (req.body && Array.isArray(req.body.csvData)) {
+    rows = req.body.csvData;
+  } else if (typeof req.body === 'string') {
+    rows = parseCSVTextToObjects(req.body);
+  }
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return res.json({ success: true, imported: 0, skipped: 0 });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    const importedResult = await normalizeAndInsertInventoryRows(conn, rows, null);
+    res.json(importedResult);
+  } catch (e) {
+    console.error('❌ /api/inventory/import error', e);
+    res.status(500).json({ success: false, error: 'Server error' });
+  } finally {
+    conn.release();
+  }
 });
 
 // Inventory summary grouped by item_type

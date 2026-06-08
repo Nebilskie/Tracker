@@ -67,6 +67,7 @@
         <div
           class="building-card"
           *ngFor="let b of filteredBuildings"
+          [attr.data-building-id]="b.id"
           [class.selected]="b.id === activeBuildingId"
           (mouseenter)="onBuildingMouseEnter(b, $event)"
           (mouseleave)="onBuildingMouseLeave()"

@@ -6,6 +6,7 @@ import {
   ElementRef,
   ChangeDetectorRef
 } from '@angular/core';
+import { AlertController } from '@ionic/angular';
 import { firstValueFrom } from 'rxjs';
 import { Preferences } from '@capacitor/preferences';
 import { FloorplanApiService, FloorplanLayout } from '../services/floorplan-api';
@@ -211,7 +212,8 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
 
   constructor(
     private floorplanApi: FloorplanApiService,
-    private cdr: ChangeDetectorRef
+    private cdr: ChangeDetectorRef,
+    private alertController: AlertController
   ) {}
 
   async ngOnInit() {
@@ -340,6 +342,15 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
       this.buildingRoomsCache.set(buildingId, rooms);
       for (const r of rooms.slice(0, 6)) {
         void this.ensureRoomPreview(r.id);
+      }
+      if (this.hoveredBuildingId === buildingId) {
+        const cardEl = document.querySelector(
+          `.building-card[data-building-id="${buildingId}"]`
+        ) as HTMLElement | null;
+        this.buildingHoverStyle = this.computeHoverStyle(
+          cardEl,
+          rooms.length === 0 ? { w: 420, h: 120 } : { w: 1180, h: 380 }
+        );
       }
     } catch (e) {
       console.warn('Building rooms hover load failed', buildingId, e);
@@ -488,28 +499,56 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
 
   async createRoomInBuilding() {
     if (this.userId == null) {
-      alert('You must be logged in to add a room.');
+      const a = await this.alertController.create({
+        header: 'Not logged in',
+        message: 'You must be logged in to add a room.',
+        buttons: ['OK'],
+      });
+      await a.present();
       return;
     }
     if (this.activeBuildingId == null) {
-      alert('Select a building first.');
+      const a = await this.alertController.create({
+        header: 'No building selected',
+        message: 'Select a building first.',
+        buttons: ['OK'],
+      });
+      await a.present();
       return;
     }
-    const raw = window.prompt('Enter new room name');
-    if (raw == null) return;
-    const name = raw.trim();
-    if (!name) return;
 
+    const alert = await this.alertController.create({
+      header: 'New Room',
+      inputs: [
+        { name: 'name', type: 'text', placeholder: 'Enter new room name' }
+      ],
+      buttons: [
+        { text: 'Cancel', role: 'cancel' },
+        {
+          text: 'Create',
+          handler: (data) => {
+            const name = String(data?.name || '').trim();
+            if (!name) return false;
+            void this.createRoomWithName(name);
+            return true;
+          }
+        }
+      ]
+    });
+    await alert.present();
+  }
+
+  private async createRoomWithName(name: string) {
     try {
       const res: any = await firstValueFrom(
-        this.floorplanApi.createBuildingRoom(this.activeBuildingId, this.userId, name)
+        this.floorplanApi.createBuildingRoom(this.activeBuildingId as number, this.userId as number, name)
       );
       if (!res?.success) {
-        alert(res?.error || 'Failed to create room');
+        const a = await this.alertController.create({ header: 'Error', message: res?.error || 'Failed to create room', buttons: ['OK'] });
+        await a.present();
         return;
       }
-      await this.loadRoomsForBuilding(this.activeBuildingId);
-
+      await this.loadRoomsForBuilding(this.activeBuildingId as number);
       const rid = res.room?.id;
       if (rid != null) {
         this.activeRoomId = Number(rid);
@@ -517,24 +556,32 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
       }
     } catch (e) {
       console.error(e);
-      alert('Failed to create room');
+      const a = await this.alertController.create({ header: 'Error', message: 'Failed to create room', buttons: ['OK'] });
+      await a.present();
     }
   }
 
   async deleteBuilding() {
     if (this.activeBuildingId == null || !this.canDeleteActiveBuilding) return;
+    const alert = await this.alertController.create({
+      header: 'Delete building?',
+      message: 'Delete this building and all of its rooms? This cannot be undone.',
+      buttons: [
+        { text: 'Cancel', role: 'cancel' },
+        { text: 'Delete', cssClass: 'danger', handler: () => { void this.performDeleteBuilding(); } }
+      ]
+    });
+    await alert.present();
+  }
 
-    const ok = window.confirm(
-      'Delete this building and all of its rooms?\n\nThis cannot be undone.'
-    );
-    if (!ok) return;
-
+  private async performDeleteBuilding() {
     try {
       const res: any = await firstValueFrom(
-        this.floorplanApi.deleteBuilding(this.activeBuildingId)
+        this.floorplanApi.deleteBuilding(this.activeBuildingId as number)
       );
       if (!res?.success) {
-        alert(res?.error || 'Failed to delete building');
+        const a = await this.alertController.create({ header: 'Error', message: res?.error || 'Failed to delete building', buttons: ['OK'] });
+        await a.present();
         return;
       }
 
@@ -542,24 +589,32 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
       this.onSeeAllBuildings();
     } catch (e) {
       console.error(e);
-      alert('Failed to delete building');
+      const a = await this.alertController.create({ header: 'Error', message: 'Failed to delete building', buttons: ['OK'] });
+      await a.present();
     }
   }
 
   async deleteRoom() {
     if (this.activeBuildingId == null || this.activeRoomId == null) return;
+    const alert = await this.alertController.create({
+      header: 'Delete room?',
+      message: 'Delete this room and its floorplan? Items assigned to this room will be unassigned.',
+      buttons: [
+        { text: 'Cancel', role: 'cancel' },
+        { text: 'Delete', cssClass: 'danger', handler: () => { void this.performDeleteRoom(); } }
+      ]
+    });
+    await alert.present();
+  }
 
-    const ok = window.confirm(
-      'Delete this room and its floorplan?\n\nItems assigned to this room will be unassigned.'
-    );
-    if (!ok) return;
-
+  private async performDeleteRoom() {
     try {
       const res: any = await firstValueFrom(
-        this.floorplanApi.deleteBuildingRoom(this.activeBuildingId, this.activeRoomId)
+        this.floorplanApi.deleteBuildingRoom(this.activeBuildingId as number, this.activeRoomId as number)
       );
       if (!res?.success) {
-        alert(res?.error || 'Failed to delete room');
+        const a = await this.alertController.create({ header: 'Error', message: res?.error || 'Failed to delete room', buttons: ['OK'] });
+        await a.present();
         return;
       }
 
@@ -572,7 +627,8 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
       }
     } catch (e) {
       console.error(e);
-      alert('Failed to delete room');
+      const a = await this.alertController.create({ header: 'Error', message: 'Failed to delete room', buttons: ['OK'] });
+      await a.present();
     }
   }
 
@@ -635,6 +691,8 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
       position: 'fixed',
       left: `${Math.round(left)}px`,
       top: `${Math.round(top)}px`,
+      width: `${panelW}px`,
+      height: `${panelH}px`,
       maxWidth: `calc(100vw - ${margin * 2}px)`,
       maxHeight: `calc(100vh - ${margin * 2}px)`,
       zIndex: 1000000,
@@ -736,21 +794,40 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
   }
 
   async createBuilding() {
-    const rawName = window.prompt('Enter new building name');
-    if (rawName == null) return;
-    const displayName = rawName.trim();
-    if (!displayName) return;
     if (this.userId == null) {
-      alert('You must be logged in to add a building.');
+      const a = await this.alertController.create({ header: 'Not logged in', message: 'You must be logged in to add a building.', buttons: ['OK'] });
+      await a.present();
       return;
     }
+
+    const alert = await this.alertController.create({
+      header: 'New building',
+      inputs: [{ name: 'name', type: 'text', placeholder: 'Enter new building name' }],
+      buttons: [
+        { text: 'Cancel', role: 'cancel' },
+        {
+          text: 'Create',
+          handler: (data) => {
+            const displayName = String(data?.name || '').trim();
+            if (!displayName) return false;
+            void this.createBuildingWithName(displayName);
+            return true;
+          }
+        }
+      ]
+    });
+    await alert.present();
+  }
+
+  private async createBuildingWithName(displayName: string) {
     const slug = this.slugFromBuildingName(displayName);
     try {
       const res: any = await firstValueFrom(
-        this.floorplanApi.createBuilding(this.userId, displayName)
+        this.floorplanApi.createBuilding(this.userId as number, displayName)
       );
       if (!res?.success) {
-        alert(res?.error || 'Failed to create building');
+        const a = await this.alertController.create({ header: 'Error', message: res?.error || 'Failed to create building', buttons: ['OK'] });
+        await a.present();
         return;
       }
       await this.loadBuildingsFromApi();
@@ -758,30 +835,14 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
       const id = res.building?.id;
       if (id != null) {
         this.activeBuildingId = Number(id);
-        await Preferences.set({
-          key: this.KEY_CURRENT_BUILDING,
-          value: String(id),
-        });
+        await Preferences.set({ key: this.KEY_CURRENT_BUILDING, value: String(id) });
         this.roomId = slug;
         await Preferences.set({ key: this.KEY_CURRENT_ROOM, value: this.roomId });
       }
-      if (!res.existing) {
-        // Optional: create a default room inside the new building
-        try {
-          await firstValueFrom(
-            this.floorplanApi.createBuildingRoom(
-              Number(res.building?.id),
-              this.userId as number,
-              'Main'
-            )
-          );
-        } catch (e) {
-          console.warn('Default building room create skipped:', e);
-        }
-      }
     } catch (e) {
       console.error(e);
-      alert('Failed to create building');
+      const a = await this.alertController.create({ header: 'Error', message: 'Failed to create building', buttons: ['OK'] });
+      await a.present();
     }
   }
 

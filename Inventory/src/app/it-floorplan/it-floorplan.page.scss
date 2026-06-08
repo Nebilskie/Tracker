@@ -160,8 +160,8 @@
   top: 0;
   width: fit-content;
   height: auto;
-  max-width: 1180px;
-  min-width: 940px;
+  max-width: min(1180px, calc(100vw - 48px));
+  min-width: 320px;
   border-radius: 14px;
   background: rgba(15, 23, 42, 0.94);
   border: 1px solid rgba(255, 255, 255, 0.10);
@@ -178,8 +178,8 @@
 }
 
 .building-hover.building-hover--compact {
-  min-width: 0;
-  max-width: 420px;
+  min-width: 320px;
+  max-width: min(660px, calc(100vw - 48px));
 }
 
 .building-hover-title {
@@ -204,8 +204,7 @@
 
 .building-hover-rooms {
   display: grid;
-  /* 2-up layout so rooms sit side-by-side, wrapping as needed */
-  grid-template-columns: repeat(2, minmax(420px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 10px;
   width: 100%;
 }
