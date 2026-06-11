@@ -303,7 +303,7 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
     void this.ensureBuildingRooms(b.id);
     this.buildingHoverStyle = this.computeHoverStyle(
       (ev?.currentTarget as HTMLElement) ?? null,
-      this.getBuildingRooms(b.id).length === 0 ? { w: 420, h: 120 } : { w: 1180, h: 380 }
+      this.getBuildingHoverSize(this.getBuildingRooms(b.id).length)
     );
   }
 
@@ -349,7 +349,7 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
         ) as HTMLElement | null;
         this.buildingHoverStyle = this.computeHoverStyle(
           cardEl,
-          rooms.length === 0 ? { w: 420, h: 120 } : { w: 1180, h: 380 }
+          this.getBuildingHoverSize(rooms.length)
         );
       }
     } catch (e) {
@@ -637,7 +637,7 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
     void this.ensureRoomPreview(room.id);
     this.roomHoverStyle = this.computeHoverStyle(
       (ev?.currentTarget as HTMLElement) ?? null,
-      { w: 620, h: 380 }
+      { w: 560, h: 320 }
     );
   }
 
@@ -726,6 +726,14 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
     const innerH = Math.max(1, viewportH - pad * 2);
     const t = this.getRoomPreviewTransformFor(roomId, innerW, innerH);
     return `translate(${pad}px, ${pad}px) ${t}`;
+  }
+
+  private getBuildingHoverSize(roomCount: number): { w: number; h: number } {
+    if (roomCount <= 0) return { w: 420, h: 120 };
+    if (roomCount === 1) return { w: 520, h: 300 };
+    if (roomCount === 2) return { w: 880, h: 300 };
+    if (roomCount === 3) return { w: 980, h: 340 };
+    return { w: 980, h: 380 };
   }
 
   private async ensureRoomPreview(roomId: number) {

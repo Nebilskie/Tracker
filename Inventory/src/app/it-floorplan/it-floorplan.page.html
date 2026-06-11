@@ -135,7 +135,7 @@
                 <div class="bh-room-name">{{ r.room_name }}</div>
                 <div class="bh-room-preview">
                   <div class="bh-room-viewport">
-                    <div class="bh-room-world" [style.transform]="getRoomPreviewTransformForPadded(r.id, 420, 300, 22)">
+                    <div class="bh-room-world" [style.transform]="getRoomPreviewTransformForPadded(r.id, 420, 180, 16)">
                       <div
                         class="bh-room-item"
                         *ngFor="let it of (getRoomPreview(r.id)?.items || [])"
@@ -217,7 +217,7 @@
               <div class="room-preview-viewport">
                 <div
                   class="room-preview-world"
-                  [style.transform]="getRoomPreviewTransformFor(r.id, 520, 300)"
+                  [style.transform]="getRoomPreviewTransformForPadded(r.id, 520, 240, 16)"
                 >
                   <div
                     class="room-preview-item"
