@@ -89,20 +89,67 @@
           </tr>
         </thead>
         <tbody>
-          <tr *ngFor="let row of pagedRows">
-            <td *ngFor="let col of columns; let first = first" [ngClass]="{ 'brand-col': col.key === 'brand' }">
-              <span
-                *ngIf="first && isSummaryView"
-                class="name-link name-link--action"
-                role="button"
-                tabindex="0"
-                (click)="openCategory(row)"
-                (keyup.enter)="openCategory(row)"
-                >{{ row[col.key] ?? '' }}</span
-              >
-              <span *ngIf="!(first && isSummaryView)" [class.name-link]="first">{{ row[col.key] ?? '' }}</span>
-            </td>
-          </tr>
+          <ng-container *ngFor="let row of pagedRows">
+            <tr>
+              <td *ngFor="let col of columns; let first = first" [ngClass]="{ 'brand-col': col.key === 'brand' }">
+                <span
+                  *ngIf="first && isSummaryView"
+                  class="name-link name-link--action"
+                  role="button"
+                  tabindex="0"
+                  (click)="openCategory(row)"
+                  (keyup.enter)="openCategory(row)"
+                  >{{ row[col.key] ?? '' }}</span
+                >
+                <ng-container *ngIf="col.key === 'status' && !isSummaryView; else plainCell">
+                  <select class="status-select" [(ngModel)]="row['status']" (change)="updateItemStatus(row, $any($event.target).value)">
+                    <option *ngFor="let option of statusOptions" [value]="option.value">{{ option.label }}</option>
+                  </select>
+                </ng-container>
+                <ng-template #plainCell>
+                  <span *ngIf="!(first && isSummaryView)" [class.name-link]="first">{{ row[col.key] ?? '' }}</span>
+                </ng-template>
+              </td>
+            </tr>
+            <tr *ngIf="locationEditingRowId === row['id']" class="location-editor-row">
+              <td></td>
+              <td class="location-actions-cell">
+                <div class="location-actions">
+                  <button class="tool-btn" (click)="confirmUsedLocation(row)">Save</button>
+                  <button class="tool-btn" (click)="cancelLocationEdit(row)">Cancel</button>
+                </div>
+              </td>
+              <td></td>
+              <td></td>
+              <td>
+                <div class="location-field">
+                  <label>Building</label>
+                  <select class="category-filter" [(ngModel)]="row['selectedBuildingId']" (ngModelChange)="onBuildingChange(row)">
+                    <option [ngValue]="null">Select building</option>
+                    <option *ngFor="let building of buildings" [ngValue]="building.id">{{ building.building_name || building.buildingName || building.name }}</option>
+                  </select>
+                </div>
+              </td>
+              <td>
+                <div class="location-field">
+                  <label>Room</label>
+                  <select class="category-filter" [(ngModel)]="row['selectedRoomId']" (ngModelChange)="onRoomChange(row)">
+                    <option [ngValue]="null">Select room</option>
+                    <option *ngFor="let room of rooms" [ngValue]="room.id">{{ room.room_name || room.roomName || room.name }}</option>
+                  </select>
+                </div>
+              </td>
+              <td>
+                <div class="location-field">
+                  <label>Cubicle</label>
+                  <select class="category-filter" [(ngModel)]="row['selectedCubicleId']">
+                    <option [ngValue]="null">Select cubicle</option>
+                    <option *ngFor="let cubicle of cubicles" [ngValue]="cubicle.id">{{ cubicle.label }}</option>
+                  </select>
+                </div>
+              </td>
+            </tr>
+          </ng-container>
           <tr *ngIf="pagedRows.length === 0">
             <td [attr.colspan]="columns.length" class="empty-row">No data available</td>
           </tr>

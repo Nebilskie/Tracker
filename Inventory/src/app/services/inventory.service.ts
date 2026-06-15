@@ -54,6 +54,14 @@ export class InventoryService {
     return this.http.get<{ success: boolean; types: string[] }>(`${this.apiBase}/items/types`);
   }
 
+  updateItemStatus(itemId: number, status: string, location?: { building_id?: number; room_id?: number; cubicle_id?: number }): Observable<{ success: boolean; status: number }> {
+    const payload: any = { status };
+    if (location) {
+      Object.assign(payload, location);
+    }
+    return this.http.put<{ success: boolean; status: number }>(`${this.apiBase}/items/${itemId}/status`, payload);
+  }
+
   getAllItems(): Observable<{ success: boolean; items: any[] }> {
     return this.http.get<{ success: boolean; items: any[] }>(`${this.apiBase}/items`);
   }

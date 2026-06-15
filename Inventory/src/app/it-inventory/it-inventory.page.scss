@@ -136,7 +136,18 @@
     background: var(--bg-secondary, #fff);
   }
 }
-
+.status-select {
+  width: auto;
+  min-width: 140px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-primary, #333);
+  background: var(--bg-input, #f9fafb);
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
 .category-filter {
   border: 1px solid var(--border-color, #e5e7eb);
   border-radius: 8px;
@@ -336,6 +347,38 @@
     color: var(--text-primary, #333);
     cursor: pointer;
   }
+}
+
+.location-editor-row td {
+  vertical-align: top;
+  padding-top: 10px;
+}
+
+.location-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+.location-actions .tool-btn {
+  min-width: 0;
+  padding: 6px 12px;
+}
+.location-actions-cell {
+  width: 180px;
+}
+
+.location-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.location-field label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary, #666);
 }
 
 .page-controls {

@@ -620,7 +620,7 @@ async function getOrCreateRoomId(conn, roomName, buildingId = null) {
     params.push(buildingId);
   }
   query += " LIMIT 1";
-
+1
   const [rows] = await conn.query(query, params);
   if (rows.length) return rows[0].id;
 
@@ -1809,18 +1809,9 @@ app.get("/floorplan-inventory", async (req,res)=>{
 ========================= */
 app.get("/api/buildings", async (req, res) => {
   try {
-    const userId = req.query.userId;
-    let q =
-      "SELECT id, user_id, building_name, created_at FROM mst_building WHERE 1=1";
-    const params = [];
-    if (userId !== undefined && userId !== null && String(userId).trim() !== "") {
-      q += " AND (user_id = ? OR user_id = 'GLOBAL')";
-      params.push(String(userId));
-    } else {
-      q += " AND user_id = 'GLOBAL'";
-    }
-    q += " ORDER BY (user_id = 'GLOBAL') ASC, building_name ASC";
-    const [rows] = await pool.query(q, params);
+    const q =
+      "SELECT id, user_id, building_name, created_at FROM mst_building ORDER BY (user_id = 'GLOBAL') ASC, building_name ASC";
+    const [rows] = await pool.query(q);
     res.json({ success: true, buildings: rows });
   } catch (e) {
     console.error("❌ /api/buildings GET error:", e);
@@ -2336,6 +2327,106 @@ app.get('/api/items', async (_req, res) => {
   } catch (e) {
     console.error('❌ /api/items error', e);
     res.status(500).json({ success: false, error: 'Server error' });
+  } finally {
+    conn.release();
+  }
+});
+
+app.put('/api/items/:id/status', async (req, res) => {
+  const itemId = Number(req.params.id);
+  const rawStatus = String(req.body?.status ?? '').trim().toUpperCase();
+  const buildingId = req.body?.building_id != null ? Number(req.body.building_id) : null;
+  const roomId = req.body?.room_id != null ? Number(req.body.room_id) : null;
+  const cubicleId = req.body?.cubicle_id != null ? Number(req.body.cubicle_id) : null;
+
+  if (!Number.isFinite(itemId) || itemId <= 0) {
+    return res.status(400).json({ success: false, error: 'Invalid item id' });
+  }
+
+  const statusMap = {
+    AVAILABLE: 1,
+    USED: 2,
+    DEFECT: 0,
+    DEFECTS: 0,
+    DEFECTIVE: 0,
+    0: 0,
+    1: 1,
+    2: 2
+  };
+  const statusValue = statusMap[rawStatus] ?? (['0', '1', '2'].includes(rawStatus) ? Number(rawStatus) : null);
+  if (statusValue === null || statusValue === undefined) {
+    return res.status(400).json({ success: false, error: 'Unsupported status' });
+  }
+
+  if (statusValue === 2 && (!Number.isFinite(buildingId) || !Number.isFinite(roomId) || !Number.isFinite(cubicleId))) {
+    return res.status(400).json({ success: false, error: 'Building, room, and cubicle are required when status is USED' });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    if (buildingId != null && !Number.isFinite(buildingId)) {
+      return res.status(400).json({ success: false, error: 'Invalid building id' });
+    }
+    if (roomId != null && !Number.isFinite(roomId)) {
+      return res.status(400).json({ success: false, error: 'Invalid room id' });
+    }
+    if (cubicleId != null && !Number.isFinite(cubicleId)) {
+      return res.status(400).json({ success: false, error: 'Invalid cubicle id' });
+    }
+
+    if (buildingId != null) {
+      const [buildingRows] = await conn.query('SELECT id FROM mst_building WHERE id = ? LIMIT 1', [buildingId]);
+      if (!buildingRows.length) {
+        return res.status(400).json({ success: false, error: 'Building not found' });
+      }
+    }
+
+    if (roomId != null) {
+      const [roomRows] = await conn.query('SELECT id, building_id FROM mst_room WHERE id = ? LIMIT 1', [roomId]);
+      if (!roomRows.length) {
+        return res.status(400).json({ success: false, error: 'Room not found' });
+      }
+      if (buildingId != null && roomRows[0].building_id !== buildingId) {
+        return res.status(400).json({ success: false, error: 'Room does not belong to the selected building' });
+      }
+    }
+
+    if (cubicleId != null) {
+      const [cubicleRows] = await conn.query('SELECT id, room_id FROM mst_cubicles WHERE id = ? LIMIT 1', [cubicleId]);
+      if (!cubicleRows.length) {
+        return res.status(400).json({ success: false, error: 'Cubicle not found' });
+      }
+      if (roomId != null && cubicleRows[0].room_id !== roomId) {
+        return res.status(400).json({ success: false, error: 'Cubicle does not belong to the selected room' });
+      }
+    }
+
+    const updates = ['status = ?', 'last_update = CURRENT_TIMESTAMP'];
+    const params = [statusValue];
+    if (buildingId != null) {
+      updates.push('building_id = ?');
+      params.push(buildingId);
+    }
+    if (roomId != null) {
+      updates.push('room_id = ?');
+      params.push(roomId);
+    }
+    if (cubicleId != null) {
+      updates.push('cubicle_id = ?');
+      params.push(cubicleId);
+    }
+
+    const [result] = await conn.query(
+      `UPDATE mst_item SET ${updates.join(', ')} WHERE id = ?`,
+      [...params, itemId]
+    );
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ success: false, error: 'Item not found' });
+    }
+    return res.json({ success: true, status: statusValue });
+  } catch (e) {
+    console.error('❌ /api/items/:id/status error', e);
+    return res.status(500).json({ success: false, error: 'Server error' });
   } finally {
     conn.release();
   }
