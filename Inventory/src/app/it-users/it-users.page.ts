@@ -243,6 +243,15 @@ export class ItUsersPage implements OnInit {
       (res) => {
         if (res?.success) {
           this.showImportStatus = `Assigned ${this.selectedAssignmentUser?.['username'] ?? 'user'} to location.`;
+          // Update localStorage with the new user data that includes location
+          const currentUser = localStorage.getItem('user');
+          if (currentUser && this.selectedAssignmentUser) {
+            const userData = JSON.parse(currentUser);
+            if (userData.id === Number(this.selectedAssignmentUser['id'])) {
+              // If this is the currently logged-in user, update their local storage
+              localStorage.setItem('user', JSON.stringify({ ...userData, ...res.user }));
+            }
+          }
           this.loadUsers();
           this.selectedAssignmentUser = null;
         } else {

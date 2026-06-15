@@ -1,11 +1,229 @@
-.home-container {
+.user-home-container {
   padding: 24px 28px 28px 228px;
   padding-top: 78px;
   margin-top: 14px;
-  background-color: #f0f2f8;
+  background-color: var(--bg-primary, #f0f2f8);
   width: 100%;
   min-height: 100%;
   display: flex;
   flex-direction: column;
+  gap: 24px;
+}
+
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.page-pretitle {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--accent-primary, #667eea);
+}
+
+.page-title {
+  margin: 0;
+  font-size: 34px;
+  font-weight: 700;
+  color: var(--text-primary, #1f2937);
+}
+
+.header-date {
+  font-size: 14px;
+  color: var(--text-secondary, #667788);
+}
+
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.stat-card {
+  background: var(--bg-card, #ffffff);
+  border-radius: 18px;
+  padding: 22px 22px;
+  box-shadow: 0 12px 40px rgba(102, 126, 234, 0.08);
+  border: 1px solid rgba(102, 126, 234, 0.08);
+}
+
+.stat-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-secondary, #667788);
+  margin-bottom: 10px;
+}
+
+.stat-value {
+  font-size: 36px;
+  font-weight: 800;
+  color: var(--text-primary, #1f2937);
+}
+
+.card-pending {
+  background: rgba(102, 126, 234, 0.08);
+}
+
+.card-progress {
+  background: rgba(255, 196, 0, 0.12);
+}
+
+.card-completed {
+  background: rgba(45, 211, 111, 0.12);
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
   gap: 20px;
+}
+
+.card {
+  background: var(--bg-card, #ffffff);
+  border-radius: 22px;
+  box-shadow: 0 12px 40px rgba(20, 29, 66, 0.06);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  overflow: hidden;
+}
+
+.card-header {
+  padding: 22px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.card-header h2 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--text-primary, #1f2937);
+}
+
+.card-subtitle {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--text-secondary, #667788);
+}
+
+.view-all {
+  background: transparent;
+  border: none;
+  color: var(--accent-primary, #667eea);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.request-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 24px 24px;
+}
+
+.request-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: var(--bg-primary, #f7f9ff);
+  border: 1px solid rgba(102, 126, 234, 0.1);
+}
+
+.request-info {
+  min-width: 0;
+}
+
+.request-title {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary, #1f2937);
+}
+
+.request-meta {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary, #667788);
+}
+
+.request-badge {
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.badge-pending {
+  color: #334ea0;
+  background: rgba(102, 126, 234, 0.12);
+}
+
+.badge-progress {
+  color: #b35900;
+  background: rgba(255, 196, 0, 0.15);
+}
+
+.badge-completed {
+  color: #165c2c;
+  background: rgba(45, 211, 111, 0.15);
+}
+
+.badge-rejected {
+  color: #831a2c;
+  background: rgba(235, 68, 90, 0.12);
+}
+
+.overview-card {
+  padding-bottom: 24px;
+}
+
+.overview-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  padding: 18px 24px;
+}
+
+.overview-item {
+  background: var(--bg-primary, #f5f7ff);
+  border-radius: 16px;
+  padding: 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.overview-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-secondary, #667788);
+}
+
+.overview-value {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--text-primary, #1f2937);
+}
+
+.empty-state {
+  color: var(--text-secondary, #667788);
+  font-size: 13px;
+  padding: 28px 24px;
 }

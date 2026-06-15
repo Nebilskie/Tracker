@@ -18,6 +18,7 @@ interface Language {
 export class LayoutComponent implements OnInit, OnDestroy {
   userName: string = 'User';
   userRole: string = 'User';
+  userLocation: string = 'Not assigned';
   isUser: boolean = false;
   isUserMenuOpen: boolean = false;
   isDarkMode: boolean = false;
@@ -88,12 +89,20 @@ export class LayoutComponent implements OnInit, OnDestroy {
       try {
         const userData = JSON.parse(user);
         this.userRole = userData.role || 'User';
+        // Try multiple possible field names for location
+        this.userLocation = userData.location || 
+                           userData.building_name || 
+                           userData.cubicle_label ||
+                           userData.assignedLocation ||
+                           'Not assigned';
       } catch (error) {
         console.error('Error parsing user data:', error);
         this.userRole = 'User';
+        this.userLocation = 'Not assigned';
       }
     } else {
       this.userRole = 'User';
+      this.userLocation = 'Not assigned';
     }
 
     const role = (this.userRole || '').toUpperCase();

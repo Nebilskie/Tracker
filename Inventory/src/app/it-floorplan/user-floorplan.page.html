@@ -37,7 +37,7 @@
       </div>
     </div>
 
-    <!-- Building cards (TRACKER-style grid) -->
+    <!-- Building cards (view-only) -->
     <div class="building-overview" *ngIf="!showFloorCanvas && !activeBuildingId" (click)="$event.stopPropagation()">
       <div class="building-grid">
         <div
@@ -81,7 +81,7 @@
                 Loading rooms…
               </div>
               <div class="building-card-meta" *ngIf="buildingRoomsLoadingId !== b.id && getBuildingRooms(b.id).length === 0">
-                No&nbsp;rooms&nbsp;yet
+                No rooms yet
               </div>
             </div>
           </div>
@@ -103,7 +103,7 @@
             </div>
 
             <div class="building-hover-empty" *ngIf="buildingRoomsLoadingId !== b.id && getBuildingRooms(b.id).length === 0">
-              No&nbsp;rooms&nbsp;yet
+              No rooms yet
             </div>
 
             <div class="building-hover-rooms" *ngIf="getBuildingRooms(b.id).length > 0">
@@ -138,10 +138,13 @@
             </div>
           </div>
         </div>
+        <p *ngIf="filteredBuildings.length === 0" class="building-empty">
+          No buildings to show.
+        </p>
       </div>
     </div>
 
-    <!-- Rooms inside selected building -->
+    <!-- Rooms inside selected building (view-only) -->
     <div class="rooms-overview" *ngIf="!showFloorCanvas && activeBuildingId" (click)="$event.stopPropagation()">
       <div class="rooms-grid">
         <div
@@ -226,12 +229,12 @@
       </div>
     </div>
 
-    <!-- Floor viewer canvas (read-only) -->
+    <!-- Floor canvas (view-only) -->
     <div
       class="floor-canvas-wrap"
       #containerRef
       *ngIf="showFloorCanvas"
-      (click)="onCanvasClick($event)"
+      (click)="$event.stopPropagation()"
     >
 
       <div
@@ -264,17 +267,9 @@
           </div>
         </div>
       </div>
-
-      <div class="empty-state" *ngIf="!loading && rooms.length === 0">
-        No floorplan has been published yet.
-      </div>
-
-      <div class="empty-state" *ngIf="!loading && rooms.length > 0 && floorItems.length === 0">
-        This room has no layout yet.
-      </div>
     </div>
 
-    <!-- Bottom: buildings from mst_building (read-only) -->
+    <!-- Bottom: buildings tabs (view-only) -->
     <div class="fp-bottom-bar" (click)="$event.stopPropagation()">
       <button
         type="button"

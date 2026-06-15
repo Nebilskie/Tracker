@@ -235,6 +235,17 @@ ion-header {
   overflow: visible;
 }
 
+.menu-location {
+  font-size: 12px;
+  color: #0f172a;
+  margin: 4px 0 0 0;
+  display: block;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+
 .menu-divider {
   height: 1px;
   background-color: #e0e0e0;

@@ -17,6 +17,7 @@
           <div>
             <div class="menu-username">{{ userName }}</div>
             <div class="menu-role">{{ userRole }}</div>
+            <div class="menu-location" *ngIf="isUser && userLocation">📍 {{ userLocation }}</div>
           </div>
           <ion-icon name="close" (click)="toggleUserMenu(); $event.stopPropagation()"></ion-icon>
         </div>
