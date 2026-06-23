@@ -1,0 +1,88 @@
+<div class="modal-content">
+
+  <div class="modal-header">
+    <h2>Add Account</h2>
+    <button class="close-btn" (click)="close()">✕</button>
+  </div>
+
+  <form class="modal-body" (ngSubmit)="submit()">
+
+    <div class="form-group">
+      <label>Username</label>
+      <ion-item class="select-item" lines="none">
+        <ion-input [(ngModel)]="username" name="username" required></ion-input>
+      </ion-item>
+    </div>
+
+    <!-- Email removed to match design -->
+
+    <div class="form-group">
+      <label>Role</label>
+      <ion-item class="select-item" lines="none">
+        <ion-select interface="popover" [(ngModel)]="role" name="role">
+          <ion-select-option *ngFor="let option of roles" [value]="option">{{ option }}</ion-select-option>
+        </ion-select>
+      </ion-item>
+    </div>
+
+    <div class="form-group">
+      <label>Building</label>
+      <ion-item class="select-item" lines="none">
+        <ion-select interface="popover" [(ngModel)]="buildingId" name="buildingId" (ionChange)="onBuildingChange()">
+          <ion-select-option *ngFor="let b of buildings" [value]="b.id">{{ b.building_name || b.name || b }}</ion-select-option>
+        </ion-select>
+      </ion-item>
+    </div>
+
+    <div class="form-group">
+      <label>Room</label>
+      <ion-item class="select-item" lines="none">
+        <ion-select interface="popover" [(ngModel)]="roomId" name="roomId" (ionChange)="onRoomChange()" [disabled]="!buildingId">
+          <ion-select-option *ngFor="let r of rooms" [value]="r.id">{{ r.room_name || r.name || r }}</ion-select-option>
+        </ion-select>
+      </ion-item>
+    </div>
+
+    <div class="form-group">
+      <label>Cubicle</label>
+      <ion-item class="select-item" lines="none">
+        <ion-select
+          interface="popover"
+          [(ngModel)]="cubicleId"
+          name="cubicleId"
+          [disabled]="!roomId || cubicles.length === 0"
+        >
+          <ion-select-option *ngFor="let c of cubicles" [value]="c.id">{{ c.label || c }}</ion-select-option>
+        </ion-select>
+      </ion-item>
+      <p class="note" *ngIf="roomId && cubicles.length === 0">No available cubicles in this room.</p>
+    </div>
+
+    <div class="form-group">
+      <label>Password</label>
+      <ion-item class="select-item" lines="none">
+        <ion-input [type]="passwordVisible ? 'text' : 'password'" [(ngModel)]="password" name="password" required></ion-input>
+        <ion-button slot="end" fill="clear" (click)="togglePasswordVisibility()" aria-label="Toggle password visibility">
+          <ion-icon [name]="passwordVisible ? 'eye-off-outline' : 'eye-outline'"></ion-icon>
+        </ion-button>
+      </ion-item>
+    </div>
+
+    <div class="form-group">
+      <label>Confirm Password</label>
+      <ion-item class="select-item" lines="none">
+        <ion-input [type]="confirmPasswordVisible ? 'text' : 'password'" [(ngModel)]="confirmPassword" name="confirmPassword" required></ion-input>
+        <ion-button slot="end" fill="clear" (click)="toggleConfirmPasswordVisibility()" aria-label="Toggle confirm password visibility">
+          <ion-icon [name]="confirmPasswordVisible ? 'eye-off-outline' : 'eye-outline'"></ion-icon>
+        </ion-button>
+      </ion-item>
+    </div>
+
+  </form>
+
+  <div class="modal-footer">
+    <button class="btn btn-cancel" (click)="close()">CANCEL</button>
+    <button class="btn btn-submit" (click)="submit()">CREATE ACCOUNT</button>
+  </div>
+
+</div>

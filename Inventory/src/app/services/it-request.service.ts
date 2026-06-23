@@ -8,7 +8,7 @@ export interface ITRequest {
   id?: number;
   username: string;
   requestText: string;
-  status: 'new' | 'inprogress' | 'completed' | 'rejected';
+  status: 'new' | 'inprogress' | 'completed' | 'rejected' | 'pending';
   createdAt?: string;
   inprogressAt?: string;
   completedAt?: string;
@@ -71,7 +71,7 @@ export class ItRequestService {
   /**
    * Update the status of an IT request
    * @param requestId - The ID of the request to update
-   * @param newStatus - The new status (new, inprogress, completed, rejected)
+   * @param newStatus - The new status (new, inprogress, completed, rejected, pending)
    */
   updateRequestStatus(requestId: number, newStatus: string): Observable<any> {
     return this.http.put<any>(`${this.apiUrl}/${requestId}`, { 

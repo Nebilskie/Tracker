@@ -1,2 +1,2 @@
 /* Reuse IT floorplan styles to ensure visual parity */
-@import '../it-floorplan/it-floorplan.page.scss';
+@use '../it-floorplan/it-floorplan.page.scss' as *;

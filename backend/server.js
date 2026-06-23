@@ -36,7 +36,7 @@ app.get('/ping', (req, res) => {
   res.json({ success: true, now: new Date().toISOString() });
 });
 
-const validStatuses = ["N", "I", "R", "C"];
+const validStatuses = ["N", "I", "R", "C", "P"];
 const ROOM_PLACEHOLDER_LABEL = "__ROOM__";
 
 function normalizeRequestStatus(input) {
@@ -52,6 +52,7 @@ function normalizeRequestStatus(input) {
   if (compact === "inprogress") return "I";
   if (compact === "rejected") return "R";
   if (compact === "completed") return "C";
+  if (compact === "pending") return "P";
 
   return null;
 }
@@ -70,7 +71,7 @@ async function initializeTables() {
         username VARCHAR(255) NOT NULL,
         request_text LONGTEXT NOT NULL,
         reason LONGTEXT,
-        status VARCHAR(1) NOT NULL DEFAULT 'N' COMMENT '''N''-New, ''I''-In-Progress, ''R''-Rejected, ''C''-Completed',
+        status VARCHAR(1) NOT NULL DEFAULT 'N' COMMENT '''N''-New, ''I''-In-Progress, ''R''-Rejected, ''C''-Completed, ''P''-Pending',
         inventory_table VARCHAR(100) NULL DEFAULT NULL,
         inventory_item_id INT NULL DEFAULT NULL,
         inventory_item_name VARCHAR(255) NULL DEFAULT NULL,
@@ -80,6 +81,7 @@ async function initializeTables() {
         inprogress_at DATETIME NULL DEFAULT NULL,
         completed_at DATETIME NULL DEFAULT NULL,
         rejected_at DATETIME NULL DEFAULT NULL,
+        pending_at DATETIME NULL DEFAULT NULL,
         rejected_from ENUM('N','I') NULL DEFAULT NULL
       )
     `);
@@ -139,17 +141,23 @@ async function initializeTables() {
 
       // Ensure the columns use the new enums (CREATE TABLE IF NOT EXISTS won't update existing schemas).
       await conn.query(
-        `ALTER TABLE requests MODIFY status VARCHAR(1) NOT NULL DEFAULT 'N' COMMENT '''N''-New, ''I''-In-Progress, ''R''-Rejected, ''C''-Completed'`
+        `ALTER TABLE requests MODIFY status VARCHAR(1) NOT NULL DEFAULT 'N' COMMENT '''N''-New, ''I''-In-Progress, ''R''-Rejected, ''C''-Completed, ''P''-Pending'`
       );
       await conn.query(`ALTER TABLE requests MODIFY rejected_from ENUM('N','I') NULL DEFAULT NULL`);
 
-      // Best-effort: add a check constraint for valid status codes (ignored if unsupported).
+      // Best-effort: replace the status check constraint so 'P' is allowed.
+      try {
+        await conn.query("ALTER TABLE requests DROP CHECK requests_status_chk");
+      } catch (_e) {
+        // ignore if not supported or if the check constraint does not exist
+      }
+
       try {
         await conn.query(
-          "ALTER TABLE requests ADD CONSTRAINT requests_status_chk CHECK (status IN ('N','I','R','C'))"
+          "ALTER TABLE requests ADD CONSTRAINT requests_status_chk CHECK (status IN ('N','I','R','C','P'))"
         );
       } catch (_e) {
-        // ignore (older MySQL, constraint already exists, etc.)
+        // ignore if the server does not support check constraints
       }
     } catch (e) {
       console.warn("⚠️ requests status migration skipped:", e?.message || e);
@@ -188,6 +196,15 @@ async function initializeTables() {
     if (!columnsPreviousInventoryItemName.length) {
       await conn.query(
         "ALTER TABLE requests ADD COLUMN previous_inventory_item_name VARCHAR(255) NULL DEFAULT NULL"
+      );
+    }
+
+    const [columnsPendingAt] = await conn.query(
+      "SHOW COLUMNS FROM requests LIKE 'pending_at'"
+    );
+    if (!columnsPendingAt.length) {
+      await conn.query(
+        "ALTER TABLE requests ADD COLUMN pending_at DATETIME NULL DEFAULT NULL"
       );
     }
 
@@ -426,6 +443,24 @@ async function initializeTables() {
       }
     } catch (e) {
       console.warn("⚠️ mst_users location assignment migration skipped:", e?.message || e);
+    }
+
+    // Ensure mst_users.id is auto-incrementing (fix for older schemas)
+    try {
+      const [idCol] = await conn.query("SHOW COLUMNS FROM mst_users LIKE 'id'");
+      if (idCol.length) {
+        const extra = String(idCol[0].Extra || '');
+        if (!/auto_increment/i.test(extra)) {
+          try {
+            await conn.query("ALTER TABLE mst_users MODIFY id INT NOT NULL AUTO_INCREMENT");
+            console.log('🔧 Enabled AUTO_INCREMENT on mst_users.id');
+          } catch (_e) {
+            console.warn('⚠️ Could not enable AUTO_INCREMENT on mst_users.id:', _e?.message || _e);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('⚠️ mst_users id auto-increment migration skipped:', e?.message || e);
     }
 
     // Clean up legacy room placeholder entries in the mst_cubicles table.
@@ -2483,6 +2518,61 @@ app.get('/api/users', async (_req, res) => {
   }
 });
 
+app.post('/api/users', async (req, res) => {
+  const { username, password, role } = req.body || {};
+  const trimmedUsername = String(username || '').trim();
+  const trimmedPassword = String(password || '').trim();
+  const normalizedRole = String(role || '').trim().toUpperCase() || 'USER';
+
+  if (!trimmedUsername || !trimmedPassword) {
+    return res.status(400).json({ success: false, error: 'Username and password are required.' });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    // Some older schemas do not have AUTO_INCREMENT on mst_users.id.
+    // Compute a next id and insert explicitly when needed.
+    let newUserId = null;
+    try {
+      // Use atomic INSERT ... SELECT to compute next id on the server side and avoid races
+      const [insertResult] = await conn.query(
+        `INSERT IGNORE INTO mst_users (id, username, password, role)
+         SELECT IFNULL(MAX(id),0)+1, ?, ?, ? FROM mst_users`,
+        [trimmedUsername, trimmedPassword, normalizedRole]
+      );
+
+      if (!insertResult || insertResult.affectedRows === 0) {
+        console.debug('❗ /api/users insertResult debug', { insertResult });
+        // In case IGNORE skipped (duplicate), try to find existing id by username.
+        const [idRows] = await conn.query('SELECT id FROM mst_users WHERE username = ? LIMIT 1', [trimmedUsername]);
+        newUserId = idRows?.[0]?.id;
+        if (!newUserId) {
+          return res.status(400).json({ success: false, error: 'User already exists or could not be created.' });
+        }
+      } else {
+        // Attempt to resolve the inserted row's id by username (INSERT ... SELECT may not return insertId)
+        const [idRows] = await conn.query('SELECT id FROM mst_users WHERE username = ? LIMIT 1', [trimmedUsername]);
+        newUserId = idRows?.[0]?.id;
+      }
+    } catch (e) {
+      console.error('❌ /api/users insert error', e?.message || e);
+      return res.status(500).json({ success: false, error: 'Server error' });
+    }
+
+    if (newUserId === undefined || newUserId === null) {
+      return res.status(500).json({ success: false, error: 'User created but could not be retrieved.' });
+    }
+
+    const [rows] = await conn.query('SELECT * FROM mst_users WHERE id = ? LIMIT 1', [newUserId]);
+    res.json({ success: true, user: rows?.[0] || null });
+  } catch (e) {
+    console.error('❌ /api/users error', e?.message || e, { body: req.body });
+    res.status(500).json({ success: false, error: 'Server error' });
+  } finally {
+    conn.release();
+  }
+});
+
 app.post('/api/users/import', async (req, res) => {
   let rows = [];
   if (Array.isArray(req.body)) {
@@ -2709,12 +2799,14 @@ function statusCodeToLabel(code) {
   if (upper === 'I') return 'inprogress';
   if (upper === 'C') return 'completed';
   if (upper === 'R') return 'rejected';
+  if (upper === 'P') return 'pending';
 
   const compact = raw.toLowerCase().replace(/[\s_-]+/g, '');
   if (compact === 'new') return 'new';
   if (compact === 'inprogress') return 'inprogress';
   if (compact === 'completed') return 'completed';
   if (compact === 'rejected') return 'rejected';
+  if (compact === 'pending') return 'pending';
   return 'new';
 }
 
@@ -2723,7 +2815,7 @@ app.get('/api/it-requests', async (_req, res) => {
   try {
     const [rows] = await conn.query(
       `SELECT id, user_id, username, request_text, reason, status,
-              created_at, updated_at, inprogress_at, completed_at, rejected_at, rejected_from,
+              created_at, updated_at, inprogress_at, completed_at, rejected_at, pending_at, rejected_from,
               inventory_table, inventory_item_id, inventory_item_name, previous_inventory_item_name
          FROM requests
         ORDER BY created_at DESC, id DESC`
@@ -2741,6 +2833,7 @@ app.get('/api/it-requests', async (_req, res) => {
       inprogress_at: r.inprogress_at,
       completed_at: r.completed_at,
       rejected_at: r.rejected_at,
+      pending_at: r.pending_at,
       rejected_from: r.rejected_from,
       inventory_table: r.inventory_table,
       inventory_item_id: r.inventory_item_id,
@@ -2838,6 +2931,11 @@ app.put('/api/it-requests/:id', async (req, res) => {
       updateValues.push(now);
       updateFields.push('rejected_from = ?');
       updateValues.push(currentStatus === 'N' || currentStatus === 'I' ? currentStatus : null);
+    }
+
+    if (normalizedStatus === 'P') {
+      updateFields.push('pending_at = ?');
+      updateValues.push(now);
     }
 
     const sql = `UPDATE requests SET ${updateFields.join(', ')} WHERE id = ?`;

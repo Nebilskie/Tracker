@@ -31,4 +31,16 @@ export class UserService {
       payload
     );
   }
+
+  createUser(payload: {
+    username: string;
+    password: string;
+    email?: string;
+    role?: string;
+  }): Observable<{ success: boolean; user?: UserRecord; error?: string }> {
+    return this.http.post<{ success: boolean; user?: UserRecord; error?: string }>(
+      `${this.apiBase}/users`,
+      payload
+    );
+  }
 }

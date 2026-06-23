@@ -1,5 +1,6 @@
 import { Component, OnInit } from '@angular/core';
 import { ItRequestService } from '../services/it-request.service';
+import { InventoryService, InventorySummaryItem } from '../services/inventory.service';
 import { ModalController, AlertController } from '@ionic/angular';
 import { SubmitRequestModalComponent } from './submit-request-modal/submit-request-modal.component';
 
@@ -9,13 +10,16 @@ interface RequestItem {
   ownerInitials: string;
   username?: string;
   reason?: string;
-  status: 'new' | 'inprogress' | 'completed' | 'rejected';
+  status: 'new' | 'inprogress' | 'completed' | 'rejected' | 'pending';
   time: string;
   date: string;
   inprogressAt?: string;
   completedAt?: string;
   rejectedAt?: string;
+  pendingAt?: string;
   rejectedFrom?: 'new' | 'inprogress' | null;
+  inventory_item_name?: string | null;
+  availableItemCount?: number | null;
 }
 
 interface UserData {
@@ -36,22 +40,26 @@ export class ItRequestPage implements OnInit {
     { label: 'New', status: 'new' },
     { label: 'In-Progress', status: 'inprogress' },
     { label: 'Completed', status: 'completed' },
-    { label: 'Rejected', status: 'rejected' }
+    { label: 'Rejected', status: 'rejected' },
+    { label: 'Pending', status: 'pending' }
   ];
 
   requests: RequestItem[] = [];
   selectedRequest: RequestItem | null = null;
   showDetailModal = false;
   currentUser: UserData | null = null;
+  inventorySummary: InventorySummaryItem[] = [];
 
   constructor(
     private itRequestService: ItRequestService,
+    private inventoryService: InventoryService,
     private modalController: ModalController,
     private alertController: AlertController
   ) {}
 
   ngOnInit() {
     this.loadCurrentUser();
+    this.loadInventorySummary();
     this.loadRequests();
   }
 
@@ -84,7 +92,10 @@ export class ItRequestPage implements OnInit {
               inprogressAt: req.inprogress_at ? new Date(req.inprogress_at).toLocaleString() : undefined,
               completedAt: req.completed_at ? new Date(req.completed_at).toLocaleString() : undefined,
               rejectedAt: req.rejected_at ? new Date(req.rejected_at).toLocaleString() : undefined,
-              rejectedFrom: req.rejected_from || null
+              pendingAt: req.pending_at ? new Date(req.pending_at).toLocaleString() : undefined,
+              rejectedFrom: req.rejected_from || null,
+              inventory_item_name: req.inventory_item_name || null,
+              availableItemCount: null
             }));
             console.log('✅ Requests loaded:', this.requests.length);
           }
@@ -104,10 +115,12 @@ export class ItRequestPage implements OnInit {
       case 'I': return 'inprogress';
       case 'C': return 'completed';
       case 'R': return 'rejected';
+      case 'P': return 'pending';
       case 'new': return 'new';
       case 'inprogress': return 'inprogress';
       case 'completed': return 'completed';
       case 'rejected': return 'rejected';
+      case 'pending': return 'pending';
       default: return 'new';
     }
   }
@@ -132,11 +145,55 @@ export class ItRequestPage implements OnInit {
   openRequestDetail(request: RequestItem) {
     this.selectedRequest = request;
     this.showDetailModal = true;
+    this.loadAvailableItemCount(request);
   }
 
   closeDetailModal() {
     this.selectedRequest = null;
     this.showDetailModal = false;
+  }
+
+  private loadInventorySummary() {
+    this.inventoryService.getSummary().subscribe(
+      (response) => {
+        this.inventorySummary = Array.isArray(response?.summary) ? response.summary : [];
+      },
+      (error) => {
+        console.error('Error loading inventory summary:', error);
+        this.inventorySummary = [];
+      }
+    );
+  }
+
+  private loadAvailableItemCount(request: RequestItem) {
+    if (!request) {
+      return;
+    }
+
+    const itemName = (request.inventory_item_name || this.extractRequestedItemName(request.title || '')).trim();
+    if (!itemName) {
+      request.availableItemCount = null;
+      return;
+    }
+
+    const normalizedTarget = itemName.toLowerCase();
+    const match = this.inventorySummary.find((item) => {
+      const name = String(item.name || '').toLowerCase();
+      return name === normalizedTarget || name.includes(normalizedTarget) || normalizedTarget.includes(name);
+    });
+
+    request.availableItemCount = match ? Number(match.available || 0) : null;
+  }
+
+  private extractRequestedItemName(text: string): string {
+    const value = String(text || '').trim();
+    const lowercase = value.toLowerCase();
+    const match = lowercase.match(/^([a-z0-9]+)(?:\s+for|\s+request|\s+to|\s+in|$)/);
+    if (match && match[1]) {
+      return match[1];
+    }
+    const firstWord = value.split(/\s+/)[0] || '';
+    return firstWord;
   }
 
   /* =========================
@@ -163,6 +220,14 @@ export class ItRequestPage implements OnInit {
       return;
     }
     await this.updateStatus(request.id, 'inprogress', 'Request accepted → In Progress');
+  }
+
+  async pendingRequest(request: RequestItem) {
+    if (!request?.id) {
+      await this.showAlert('Error', 'Request ID not found');
+      return;
+    }
+    await this.updateStatus(request.id, 'pending', 'Request moved to Pending');
   }
 
   async doneRequest(request: RequestItem) {

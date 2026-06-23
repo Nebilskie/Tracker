@@ -1,6 +1,5 @@
 import { Component, HostListener, OnInit } from '@angular/core';
 import { InventoryService, InventoryItem, InventorySummaryItem } from '../services/inventory.service';
-import { FloorplanApiService } from '../services/floorplan-api';
 
 export interface ColumnDef {
   key: string;
@@ -23,12 +22,6 @@ export class ItInventoryPage implements OnInit {
   filteredRows: Record<string, any>[] = [];
   pagedRows: Record<string, any>[] = [];
 
-  statusOptions = [
-    { value: 'AVAILABLE', label: 'Available' },
-    { value: 'USED', label: 'Used' },
-    { value: 'DEFECT', label: 'Defect' }
-  ];
-
   // Pagination
   pageSize = 20;
   currentPage = 1;
@@ -41,13 +34,7 @@ export class ItInventoryPage implements OnInit {
   // Export dropdown
   showExportDropdown = false;
 
-  buildings: any[] = [];
-  rooms: any[] = [];
-  cubicles: any[] = [];
-  locationEditingRowId: number | null = null;
-  previousStatusByRowId: Record<number, string> = {};
-
-  constructor(private inventoryService: InventoryService, private floorplanApi: FloorplanApiService) {}
+  constructor(private inventoryService: InventoryService) {}
 
   @HostListener('document:click', ['$event'])
   onDocumentClick(event: MouseEvent) {
@@ -285,150 +272,6 @@ export class ItInventoryPage implements OnInit {
       default:
         return normalized.toUpperCase();
     }
-  }
-
-  updateItemStatus(row: Record<string, any>, newStatus: string) {
-    if (!row?.['id']) return;
-
-    if (newStatus === 'USED') {
-      this.openUsedLocationEditor(row);
-      return;
-    }
-
-    if (this.locationEditingRowId === row['id']) {
-      this.cancelLocationEdit(row);
-    }
-
-    const previousStatus = row['status'];
-    row['status'] = newStatus;
-    this.inventoryService.updateItemStatus(row['id'], newStatus).subscribe(
-      () => {
-        // Keep the frontend status updated.
-      },
-      (err) => {
-        console.error('Failed to update item status', err);
-        row['status'] = previousStatus;
-        alert('Failed to change item status. Please try again.');
-      }
-    );
-  }
-
-  openUsedLocationEditor(row: Record<string, any>) {
-    if (!row?.['id']) return;
-
-    this.previousStatusByRowId[row['id']] = row['status'];
-    row['status'] = 'USED';
-    row['selectedBuildingId'] = null;
-    row['selectedRoomId'] = null;
-    row['selectedCubicleId'] = null;
-    this.locationEditingRowId = row['id'];
-
-    if (!this.buildings.length) {
-      this.loadBuildings();
-    }
-  }
-
-  cancelLocationEdit(row: Record<string, any>) {
-    if (!row?.['id']) return;
-
-    row['status'] = 'AVAILABLE';
-    delete this.previousStatusByRowId[row['id']];
-
-    this.locationEditingRowId = null;
-    row['selectedBuildingId'] = null;
-    row['selectedRoomId'] = null;
-    row['selectedCubicleId'] = null;
-    this.rooms = [];
-    this.cubicles = [];
-  }
-
-  confirmUsedLocation(row: Record<string, any>) {
-    if (!row?.['id']) return;
-
-    const buildingId = Number(row['selectedBuildingId']);
-    const roomId = Number(row['selectedRoomId']);
-    const cubicleId = Number(row['selectedCubicleId']);
-
-    if (!buildingId || !roomId || !cubicleId) {
-      alert('Please select building, room, and cubicle before saving.');
-      return;
-    }
-
-    const payload = {
-      building_id: buildingId,
-      room_id: roomId,
-      cubicle_id: cubicleId
-    };
-
-    this.inventoryService.updateItemStatus(row['id'], 'USED', payload).subscribe(
-      () => {
-        this.locationEditingRowId = null;
-        this.loadAssetData();
-      },
-      (err) => {
-        console.error('Failed to update item status with location', err);
-        alert('Failed to save item location. Please try again.');
-      }
-    );
-  }
-
-  private loadBuildings() {
-    this.floorplanApi.listBuildings().subscribe(
-      (res) => {
-        this.buildings = res?.success && Array.isArray(res?.buildings) ? res.buildings : [];
-      },
-      (err) => {
-        console.error('Failed to load buildings', err);
-        this.buildings = [];
-      }
-    );
-  }
-
-  onBuildingChange(row: Record<string, any>) {
-    row['selectedRoomId'] = null;
-    row['selectedCubicleId'] = null;
-    this.cubicles = [];
-
-    const buildingId = Number(row['selectedBuildingId']);
-    if (buildingId) {
-      this.loadRooms(buildingId);
-    } else {
-      this.rooms = [];
-    }
-  }
-
-  private loadRooms(buildingId: number) {
-    this.floorplanApi.listBuildingRooms(buildingId).subscribe(
-      (res) => {
-        this.rooms = res?.success && Array.isArray(res?.rooms) ? res.rooms : [];
-      },
-      (err) => {
-        console.error('Failed to load rooms for building', buildingId, err);
-        this.rooms = [];
-      }
-    );
-  }
-
-  onRoomChange(row: Record<string, any>) {
-    row['selectedCubicleId'] = null;
-    const roomId = Number(row['selectedRoomId']);
-    if (roomId) {
-      this.loadCubicles(roomId);
-    } else {
-      this.cubicles = [];
-    }
-  }
-
-  private loadCubicles(roomId: number) {
-    this.floorplanApi.listRoomCubicles(roomId).subscribe(
-      (res) => {
-        this.cubicles = res?.success && Array.isArray(res?.cubicles) ? res.cubicles : [];
-      },
-      (err) => {
-        console.error('Failed to load cubicles for room', roomId, err);
-        this.cubicles = [];
-      }
-    );
   }
 
   onImportFile(event: any) {

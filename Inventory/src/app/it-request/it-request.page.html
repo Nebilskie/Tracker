@@ -88,8 +88,11 @@
       </div>
 
       <!-- REASON -->
-      <div class="reason-label">
-        Reason:
+      <div class="reason-row">
+        <div class="reason-label">Reason:</div>
+        <div class="available-count" *ngIf="selectedRequest?.availableItemCount !== null">
+          Available: {{ selectedRequest.availableItemCount }}
+        </div>
       </div>
 
       <div class="reason-box">
@@ -113,7 +116,7 @@
         </div>
       </div>
 
-      <div class="status-timestamps" *ngIf="selectedRequest.inprogressAt || selectedRequest.completedAt || selectedRequest.rejectedAt">
+      <div class="status-timestamps" *ngIf="selectedRequest.inprogressAt || selectedRequest.completedAt || selectedRequest.rejectedAt || selectedRequest.pendingAt">
         <div class="td-col" *ngIf="selectedRequest.inprogressAt">
           <div class="td-label">In Progress at</div>
           <div class="td-value">{{ selectedRequest.inprogressAt }}</div>
@@ -125,6 +128,10 @@
         <div class="td-col" *ngIf="selectedRequest.rejectedAt">
           <div class="td-label">Rejected at</div>
           <div class="td-value">{{ selectedRequest.rejectedAt }}</div>
+        </div>
+        <div class="td-col" *ngIf="selectedRequest.pendingAt">
+          <div class="td-label">Pending at</div>
+          <div class="td-value">{{ selectedRequest.pendingAt }}</div>
         </div>
         <div class="td-col" *ngIf="selectedRequest.rejectedFrom">
           <div class="td-label">Rejected from</div>
@@ -142,7 +149,13 @@
           REJECT
         </button>
 
-        <button *ngIf="selectedRequest.status === 'new'"
+        <button *ngIf="selectedRequest.status === 'new' && selectedRequest.availableItemCount === 0"
+                class="btn-outline pending"
+                (click)="pendingRequest(selectedRequest)">
+          PENDING
+        </button>
+
+        <button *ngIf="selectedRequest.status === 'new' && selectedRequest.availableItemCount !== 0"
                 class="btn-outline primary"
                 (click)="acceptRequest(selectedRequest)">
           ACCEPT

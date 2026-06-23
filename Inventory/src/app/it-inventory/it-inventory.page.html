@@ -102,51 +102,11 @@
                   >{{ row[col.key] ?? '' }}</span
                 >
                 <ng-container *ngIf="col.key === 'status' && !isSummaryView; else plainCell">
-                  <select class="status-select" [(ngModel)]="row['status']" (change)="updateItemStatus(row, $any($event.target).value)">
-                    <option *ngFor="let option of statusOptions" [value]="option.value">{{ option.label }}</option>
-                  </select>
+                  <span>{{ row['status'] ?? '' }}</span>
                 </ng-container>
                 <ng-template #plainCell>
                   <span *ngIf="!(first && isSummaryView)" [class.name-link]="first">{{ row[col.key] ?? '' }}</span>
                 </ng-template>
-              </td>
-            </tr>
-            <tr *ngIf="locationEditingRowId === row['id']" class="location-editor-row">
-              <td></td>
-              <td class="location-actions-cell">
-                <div class="location-actions">
-                  <button class="tool-btn" (click)="confirmUsedLocation(row)">Save</button>
-                  <button class="tool-btn" (click)="cancelLocationEdit(row)">Cancel</button>
-                </div>
-              </td>
-              <td></td>
-              <td></td>
-              <td>
-                <div class="location-field">
-                  <label>Building</label>
-                  <select class="category-filter" [(ngModel)]="row['selectedBuildingId']" (ngModelChange)="onBuildingChange(row)">
-                    <option [ngValue]="null">Select building</option>
-                    <option *ngFor="let building of buildings" [ngValue]="building.id">{{ building.building_name || building.buildingName || building.name }}</option>
-                  </select>
-                </div>
-              </td>
-              <td>
-                <div class="location-field">
-                  <label>Room</label>
-                  <select class="category-filter" [(ngModel)]="row['selectedRoomId']" (ngModelChange)="onRoomChange(row)">
-                    <option [ngValue]="null">Select room</option>
-                    <option *ngFor="let room of rooms" [ngValue]="room.id">{{ room.room_name || room.roomName || room.name }}</option>
-                  </select>
-                </div>
-              </td>
-              <td>
-                <div class="location-field">
-                  <label>Cubicle</label>
-                  <select class="category-filter" [(ngModel)]="row['selectedCubicleId']">
-                    <option [ngValue]="null">Select cubicle</option>
-                    <option *ngFor="let cubicle of cubicles" [ngValue]="cubicle.id">{{ cubicle.label }}</option>
-                  </select>
-                </div>
               </td>
             </tr>
           </ng-container>

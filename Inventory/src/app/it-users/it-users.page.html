@@ -7,6 +7,16 @@
           <option *ngFor="let role of roles" [value]="role">{{ role }}</option>
         </select>
 
+        <select class="category-filter" [(ngModel)]="filterBuildingId" (change)="onFilterBuildingChange()">
+          <option value="">All Buildings</option>
+          <option *ngFor="let building of buildings" [value]="building.id">{{ building.building_name }}</option>
+        </select>
+
+        <select class="category-filter" [(ngModel)]="filterRoomId" (change)="applySearch()" [disabled]="!filterBuildingId">
+          <option value="">All Rooms</option>
+          <option *ngFor="let room of filterRooms" [value]="room.id">{{ room.room_name }}</option>
+        </select>
+
         <button class="tool-btn" type="button" (click)="fileInput.click()">
           <ion-icon name="cloud-upload-outline"></ion-icon>
           Bulk Import
@@ -174,4 +184,6 @@
       </div>
     </div>
   </div>
+
+  <button class="fab-add-user" type="button" (click)="openAddUserModal()">+</button>
 </ion-content>

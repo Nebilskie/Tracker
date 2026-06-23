@@ -215,8 +215,15 @@
 }
 
 /* REASON */
-.reason-label {
+.reason-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   margin-top: 16px;
+  gap: 12px;
+}
+
+reason-label {
   font-size: 12px;
   font-weight: 700;
   color: #334155;
@@ -224,12 +231,21 @@
 
 .reason-box {
   margin-top: 6px;
-  height: 140px;
+  min-height: 140px;
   border: 2px solid #79c9ff;
   border-radius: 8px;
   padding: 12px;
   font-size: 13px;
   background: #f8fbff;
+}
+
+.available-count {
+  font-size: 12px;
+  font-weight: 700;
+  color: #c70000;
+  background: none;
+  border: none;
+  padding: 0;
 }
 
 /* TIME + DATE */
@@ -306,6 +322,18 @@
   background: #00c853;
   color: #fff;
   box-shadow: 0 10px 20px rgba(0,200,83,0.4);
+}
+
+.btn-outline.pending {
+  border: 2px solid #28a745;
+  background: #fff;
+  color: #28a745;
+}
+
+.btn-outline.pending:hover {
+  background: #28a745;
+  color: #fff;
+  box-shadow: 0 10px 20px rgba(40,167,69,0.35);
 }
 
 @keyframes modalPop {

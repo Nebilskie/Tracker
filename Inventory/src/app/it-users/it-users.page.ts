@@ -1,6 +1,8 @@
 import { Component, HostListener, OnInit } from '@angular/core';
+import { ModalController } from '@ionic/angular';
 import { UserService, UserRecord } from '../services/user.service';
 import { FloorplanApiService } from '../services/floorplan-api';
+import { AddUserModalComponent } from './add-user-modal.component';
 
 export interface ColumnDef {
   key: string;
@@ -20,6 +22,8 @@ export class ItUsersPage implements OnInit {
   pagedUsers: UserRecord[] = [];
   roles: string[] = ['IT', 'USER'];
   selectedRole = '';
+  filterBuildingId = '';
+  filterRoomId = '';
   searchTerm = '';
   pageSize = 20;
   currentPage = 1;
@@ -30,6 +34,7 @@ export class ItUsersPage implements OnInit {
   visiblePasswordUsers = new Set<string>();
 
   buildings: any[] = [];
+  filterRooms: any[] = [];
   rooms: any[] = [];
   cubicles: any[] = [];
 
@@ -40,7 +45,11 @@ export class ItUsersPage implements OnInit {
     cubicle_id: ''
   };
 
-  constructor(private userService: UserService, private floorplanApi: FloorplanApiService) {}
+  constructor(
+    private userService: UserService,
+    private floorplanApi: FloorplanApiService,
+    private modalController: ModalController
+  ) {}
 
   @HostListener('document:click', ['$event'])
   onDocumentClick(event: MouseEvent) {
@@ -53,6 +62,20 @@ export class ItUsersPage implements OnInit {
   ngOnInit() {
     this.loadUsers();
     this.loadBuildings();
+  }
+
+  async openAddUserModal(): Promise<void> {
+    const modal = await this.modalController.create({
+      component: AddUserModalComponent,
+      cssClass: 'request-modal-container',
+      showBackdrop: false
+    });
+
+    await modal.present();
+    const { data } = await modal.onDidDismiss();
+    if (data?.refresh) {
+      this.loadUsers();
+    }
   }
 
   loadUsers() {
@@ -100,9 +123,15 @@ export class ItUsersPage implements OnInit {
     const term = String(this.searchTerm || '').toLowerCase().trim();
     const roleFilter = String(this.selectedRole || '').toLowerCase().trim();
 
+    const buildingFilter = this.parseNumberOrNull(this.filterBuildingId);
+    const roomFilter = this.parseNumberOrNull(this.filterRoomId);
+
     this.filteredUsers = this.users.filter((user) => {
       const matchesRole = !roleFilter || String(user['role'] || '').toLowerCase() === roleFilter;
       if (!matchesRole) return false;
+
+      if (buildingFilter && Number(user['building_id']) !== buildingFilter) return false;
+      if (roomFilter && Number(user['room_id']) !== roomFilter) return false;
 
       if (!term) return true;
       return this.columns.some((col) =>
@@ -142,6 +171,33 @@ export class ItUsersPage implements OnInit {
 
   filterByRole() {
     this.applySearch();
+  }
+
+  onFilterBuildingChange(): void {
+    this.filterRoomId = '';
+    this.filterRooms = [];
+    if (this.filterBuildingId) {
+      this.loadFilterRooms(this.filterBuildingId);
+    }
+    this.applySearch();
+  }
+
+  private loadFilterRooms(buildingId: string | number): void {
+    const id = this.parseNumberOrNull(String(buildingId));
+    if (!id) {
+      this.filterRooms = [];
+      return;
+    }
+
+    this.floorplanApi.listBuildingRooms(id).subscribe(
+      (res) => {
+        this.filterRooms = res?.success && Array.isArray(res.rooms) ? res.rooms : [];
+      },
+      (err) => {
+        console.error('Failed to load filter rooms', err);
+        this.filterRooms = [];
+      }
+    );
   }
 
   toggleExportDropdown(event: MouseEvent) {
