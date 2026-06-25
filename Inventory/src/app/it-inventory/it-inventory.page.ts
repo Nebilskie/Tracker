@@ -1,5 +1,6 @@
 import { Component, HostListener, OnInit } from '@angular/core';
 import { InventoryService, InventoryItem, InventorySummaryItem } from '../services/inventory.service';
+import { ItRequestService } from '../services/it-request.service';
 
 export interface ColumnDef {
   key: string;
@@ -34,7 +35,10 @@ export class ItInventoryPage implements OnInit {
   // Export dropdown
   showExportDropdown = false;
 
-  constructor(private inventoryService: InventoryService) {}
+  constructor(
+    private inventoryService: InventoryService,
+    private itRequestService: ItRequestService
+  ) {}
 
   @HostListener('document:click', ['$event'])
   onDocumentClick(event: MouseEvent) {
@@ -88,6 +92,11 @@ export class ItInventoryPage implements OnInit {
     return !this.assetType;
   }
 
+  getPendingCount(row: Record<string, any>): number {
+    const count = Number(row?.['pending'] ?? 0);
+    return Number.isFinite(count) && count > 0 ? count : 0;
+  }
+
   /** From the All Inventory summary, drill into that category's items (matches toolbar filter + detail table). */
   openCategory(row: Record<string, any>) {
     const raw = String(row['name'] ?? '').trim();
@@ -118,7 +127,7 @@ export class ItInventoryPage implements OnInit {
       this.inventoryService.getSummary().subscribe(
         (res) => {
           if (res && res.success && Array.isArray((res as any).summary)) {
-            this.rows = (res as any).summary.map((s: InventorySummaryItem) => ({
+            const summaryRows = (res as any).summary.map((s: InventorySummaryItem) => ({
               name: s.name,
               total: s.total,
               defects: s.defects,
@@ -126,6 +135,9 @@ export class ItInventoryPage implements OnInit {
               used: s.used,
               pending: s.pending ?? 0
             }));
+
+            this.applyPendingCounts(summaryRows);
+            return;
           } else {
             this.rows = [];
           }
@@ -193,6 +205,57 @@ export class ItInventoryPage implements OnInit {
         console.error('Failed to load items for type', this.assetType, err);
         this.rows = [];
         this.filteredRows = [];
+        this.paginate();
+      }
+    );
+  }
+
+  private applyPendingCounts(summaryRows: Record<string, any>[]) {
+    const normalizedTypes = summaryRows
+      .map((row) => String(row?.['name'] ?? '').trim().toLowerCase())
+      .filter(Boolean)
+      .sort((a, b) => b.length - a.length);
+
+    this.itRequestService.getAllRequests().subscribe(
+      (res: any) => {
+        const requests = Array.isArray(res?.requests) ? res.requests : [];
+        const pendingByType: Record<string, number> = {};
+
+        for (const req of requests) {
+          const status = String(req?.status ?? '').trim().toLowerCase();
+          if (status !== 'pending' && status !== 'p') {
+            continue;
+          }
+
+          const requestText = String(req?.request_text ?? req?.requestText ?? '').toLowerCase();
+          if (!requestText) {
+            continue;
+          }
+
+          const matchedType = normalizedTypes.find((type) => requestText.includes(type));
+          if (!matchedType) {
+            continue;
+          }
+
+          pendingByType[matchedType] = (pendingByType[matchedType] || 0) + 1;
+        }
+
+        this.rows = summaryRows.map((row) => {
+          const key = String(row?.['name'] ?? '').trim().toLowerCase();
+          return {
+            ...row,
+            pending: Number(pendingByType[key] || row?.['pending'] || 0)
+          };
+        });
+
+        this.filteredRows = [...this.rows];
+        this.currentPage = 1;
+        this.paginate();
+      },
+      () => {
+        this.rows = summaryRows;
+        this.filteredRows = [...this.rows];
+        this.currentPage = 1;
         this.paginate();
       }
     );

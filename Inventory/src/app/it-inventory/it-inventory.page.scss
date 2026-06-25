@@ -313,6 +313,20 @@
   border-radius: 2px;
 }
 
+.summary-name-cell {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.pending-inline {
+  font-size: 11px;
+  font-weight: 600;
+  color: #b91c1c;
+  line-height: 1.1;
+}
+
 .empty-row {
   text-align: center;
   color: var(--text-muted, #aaa);

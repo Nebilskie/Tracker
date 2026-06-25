@@ -92,15 +92,19 @@
           <ng-container *ngFor="let row of pagedRows">
             <tr>
               <td *ngFor="let col of columns; let first = first" [ngClass]="{ 'brand-col': col.key === 'brand' }">
-                <span
-                  *ngIf="first && isSummaryView"
-                  class="name-link name-link--action"
-                  role="button"
-                  tabindex="0"
-                  (click)="openCategory(row)"
-                  (keyup.enter)="openCategory(row)"
-                  >{{ row[col.key] ?? '' }}</span
-                >
+                <div *ngIf="first && isSummaryView" class="summary-name-cell">
+                  <span
+                    class="name-link name-link--action"
+                    role="button"
+                    tabindex="0"
+                    (click)="openCategory(row)"
+                    (keyup.enter)="openCategory(row)"
+                    >{{ row[col.key] ?? '' }}</span
+                  >
+                  <span class="pending-inline" *ngIf="getPendingCount(row) > 0">
+                    Pending: {{ getPendingCount(row) }}
+                  </span>
+                </div>
                 <ng-container *ngIf="col.key === 'status' && !isSummaryView; else plainCell">
                   <span>{{ row['status'] ?? '' }}</span>
                 </ng-container>

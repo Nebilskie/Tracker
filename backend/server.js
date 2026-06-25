@@ -123,9 +123,10 @@ async function initializeTables() {
           WHEN status = 'inprogress' THEN 'I'
           WHEN status = 'rejected' THEN 'R'
           WHEN status = 'completed' THEN 'C'
+          WHEN status = 'pending' THEN 'P'
           ELSE status
         END
-        WHERE status IN ('new','inprogress','rejected','completed')
+        WHERE status IN ('new','inprogress','rejected','completed','pending')
       `);
 
       // Convert rejected_from legacy values.
@@ -145,11 +146,39 @@ async function initializeTables() {
       );
       await conn.query(`ALTER TABLE requests MODIFY rejected_from ENUM('N','I') NULL DEFAULT NULL`);
 
-      // Best-effort: replace the status check constraint so 'P' is allowed.
+      // Best-effort: replace legacy status check constraints so 'P' is allowed.
       try {
-        await conn.query("ALTER TABLE requests DROP CHECK requests_status_chk");
+        const [statusChecks] = await conn.query(`
+          SELECT tc.CONSTRAINT_NAME AS constraint_name
+          FROM information_schema.TABLE_CONSTRAINTS tc
+          JOIN information_schema.CHECK_CONSTRAINTS cc
+            ON tc.CONSTRAINT_SCHEMA = cc.CONSTRAINT_SCHEMA
+           AND tc.CONSTRAINT_NAME = cc.CONSTRAINT_NAME
+          WHERE tc.TABLE_SCHEMA = DATABASE()
+            AND tc.TABLE_NAME = 'requests'
+            AND tc.CONSTRAINT_TYPE = 'CHECK'
+            AND UPPER(cc.CHECK_CLAUSE) LIKE '%STATUS%'
+        `);
+
+        for (const row of statusChecks) {
+          const constraintName = row?.constraint_name;
+          if (!constraintName) continue;
+
+          try {
+            await conn.query(`ALTER TABLE requests DROP CHECK \`${constraintName}\``);
+            continue;
+          } catch (_dropCheckErr) {
+            // fall through and try DROP CONSTRAINT (MariaDB syntax)
+          }
+
+          try {
+            await conn.query(`ALTER TABLE requests DROP CONSTRAINT \`${constraintName}\``);
+          } catch (_dropConstraintErr) {
+            // ignore if not supported by engine/version
+          }
+        }
       } catch (_e) {
-        // ignore if not supported or if the check constraint does not exist
+        // ignore if INFORMATION_SCHEMA check tables are unavailable
       }
 
       try {
@@ -157,7 +186,7 @@ async function initializeTables() {
           "ALTER TABLE requests ADD CONSTRAINT requests_status_chk CHECK (status IN ('N','I','R','C','P'))"
         );
       } catch (_e) {
-        // ignore if the server does not support check constraints
+        // ignore if the server does not support check constraints or it already exists
       }
     } catch (e) {
       console.warn("⚠️ requests status migration skipped:", e?.message || e);
@@ -965,9 +994,21 @@ async function reserveRequestedItem(conn, requestId, requestText) {
   const userId = reqRows?.[0]?.user_id || null;
 
   try {
-    // find an available mst_item of this type
+    // find an available mst_item of this type that is not already reserved by another open request
     const [availableRows] = await conn.query(
-      `SELECT id, code FROM mst_item WHERE item_type = ? AND status = 1 ORDER BY last_update ASC LIMIT 1`,
+      `SELECT i.id, i.code
+       FROM mst_item i
+       LEFT JOIN requests r
+         ON r.inventory_item_id = i.id
+        AND (
+          r.status IN ('I','P')
+          OR LOWER(TRIM(r.status)) IN ('inprogress','pending')
+        )
+       WHERE i.item_type = ?
+         AND i.status = 1
+         AND r.id IS NULL
+       ORDER BY i.last_update ASC
+       LIMIT 1`,
       [itemType]
     );
 
@@ -977,7 +1018,7 @@ async function reserveRequestedItem(conn, requestId, requestText) {
     const itemName = availableRows[0].code || null;
 
     await conn.query(
-      `UPDATE mst_item SET status = 2, last_update = CURRENT_TIMESTAMP WHERE id = ?`,
+      `UPDATE mst_item SET last_update = CURRENT_TIMESTAMP WHERE id = ?`,
       [itemId]
     );
 
@@ -1044,24 +1085,21 @@ async function releaseReservedItem(conn, requestId, requestText) {
     if (!existing.length) return;
 
     const row = existing[0];
-    if (row.status === 2) {
-      // mark available
-      await conn.query(`UPDATE mst_item SET status = 1, last_update = CURRENT_TIMESTAMP WHERE id = ?`, [itemId]);
+    // keep rejected requests from leaving stale reservations on the floor plan
+    await conn.query(`UPDATE mst_item SET status = 1, last_update = CURRENT_TIMESTAMP WHERE id = ?`, [itemId]);
 
-      const cubicleLabel = extractCubicleLabel(requestText);
-      const itemType = row.item_type;
+    const cubicleLabel = extractCubicleLabel(requestText);
+    const itemType = row.item_type;
 
-      if (cubicleLabel && itemType && userId) {
-        const [cubRows] = await conn.query(
-          "SELECT id AS cubicle_id, room_id FROM mst_cubicles WHERE label = ? LIMIT 1",
-          [cubicleLabel]
-        );
-        const roomId = cubRows?.[0]?.room_id || null;
+    if (cubicleLabel && itemType && userId) {
+      const [cubRows] = await conn.query(
+        "SELECT id AS cubicle_id, room_id FROM mst_cubicles WHERE label = ? LIMIT 1",
+        [cubicleLabel]
+      );
+      const roomId = cubRows?.[0]?.room_id || null;
 
-        if (roomId) {
-          await setFloorplanInventoryValue(conn, roomId, cubicleLabel, itemType, null);
-          await updateItemLocation(conn, 'mst_item', null);
-        }
+      if (roomId) {
+        await setFloorplanInventoryValue(conn, roomId, cubicleLabel, itemType, null);
       }
     }
   } catch (err) {
@@ -1161,6 +1199,11 @@ async function markRequestedItemUsed(conn, requestId, requestText) {
     if (!itemId) {
       return;
     }
+
+    await conn.query(
+      `UPDATE mst_item SET status = 2, last_update = CURRENT_TIMESTAMP WHERE id = ?`,
+      [itemId]
+    );
 
     await conn.query(
       `UPDATE requests SET inventory_table = ?, inventory_item_id = ?, inventory_item_name = ? WHERE id = ?`,
@@ -1280,12 +1323,35 @@ app.get('/api/inventory/:type', async (req, res) => {
          ORDER BY TRIM(item_type) ASC`
       );
 
+      const [typeRows] = await conn.query(
+        `SELECT DISTINCT TRIM(LOWER(item_type)) AS item_type
+         FROM mst_item
+         WHERE item_type IS NOT NULL AND TRIM(item_type) <> ''
+         ORDER BY CHAR_LENGTH(TRIM(item_type)) DESC`
+      );
+
+      const itemTypes = (typeRows || []).map(r => String(r.item_type || '').toLowerCase()).filter(Boolean);
+
+      const [pendingRows] = await conn.query(
+        `SELECT request_text
+         FROM requests
+         WHERE status = 'P' OR LOWER(TRIM(status)) = 'pending'`
+      );
+
+      const pendingByType = {};
+      for (const row of (pendingRows || [])) {
+        const itemType = resolveInventoryTypeFromText(row?.request_text, itemTypes);
+        if (!itemType) continue;
+        pendingByType[itemType] = (pendingByType[itemType] || 0) + 1;
+      }
+
       const summary = (sumRows || []).map(r => ({
         name: r.name || 'Unknown',
         total: Number(r.total || 0),
         defects: Number(r.defects || 0),
         used: Number(r.used || 0),
-        available: Number(r.available || 0)
+        available: Number(r.available || 0),
+        pending: Number(pendingByType[String(r.name || '').toLowerCase()] || 0)
       }));
 
       return res.json({ success: true, summary });
@@ -2774,7 +2840,7 @@ app.get('/api/inventory/summary', async (_req, res) => {
   const conn = await pool.getConnection();
   try {
     const [rows] = await conn.query(
-      `SELECT item_type AS name,
+      `SELECT TRIM(item_type) AS name,
               COUNT(*) AS total,
               SUM(CASE WHEN status = 0 THEN 1 ELSE 0 END) AS defects,
               SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END) AS used,
@@ -2796,7 +2862,7 @@ app.get('/api/inventory/summary', async (_req, res) => {
     const [pendingRows] = await conn.query(
       `SELECT request_text
        FROM requests
-       WHERE status = 'P'`
+       WHERE status = 'P' OR LOWER(TRIM(status)) = 'pending'`
     );
 
     const pendingByType = {};
@@ -2807,7 +2873,7 @@ app.get('/api/inventory/summary', async (_req, res) => {
     }
 
     const summary = (rows || []).map(r => {
-      const name = String(r.name || 'Unknown');
+      const name = String(r.name || 'Unknown').trim();
       const key = name.toLowerCase();
       return {
         name,
