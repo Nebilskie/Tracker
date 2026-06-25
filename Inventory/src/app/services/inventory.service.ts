@@ -22,6 +22,7 @@ export interface InventorySummaryItem {
   defects: number;
   available: number;
   used: number;
+  pending: number;
 }
 
 @Injectable({ providedIn: 'root' })

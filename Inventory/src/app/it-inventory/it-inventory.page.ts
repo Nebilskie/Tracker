@@ -51,7 +51,8 @@ export class ItInventoryPage implements OnInit {
       { key: 'total', label: 'TOTAL' },
       { key: 'defects', label: 'DEFECTS' },
       { key: 'used', label: 'USED' },
-      { key: 'available', label: 'AVAILABLE' }
+      { key: 'available', label: 'AVAILABLE' },
+      { key: 'pending', label: 'PENDING' }
     ];
 
     // initialize empty state
@@ -122,7 +123,8 @@ export class ItInventoryPage implements OnInit {
               total: s.total,
               defects: s.defects,
               available: s.available,
-              used: s.used
+              used: s.used,
+              pending: s.pending ?? 0
             }));
           } else {
             this.rows = [];

@@ -2757,6 +2757,18 @@ app.post('/api/inventory/import', async (req, res) => {
   }
 });
 
+function resolveInventoryTypeFromText(requestText, itemTypes) {
+  const text = (requestText || '').toLowerCase();
+  if (!text || !Array.isArray(itemTypes)) return null;
+
+  for (const itemType of itemTypes) {
+    if (!itemType) continue;
+    if (text.includes(itemType)) return itemType;
+  }
+
+  return null;
+}
+
 // Inventory summary grouped by item_type
 app.get('/api/inventory/summary', async (_req, res) => {
   const conn = await pool.getConnection();
@@ -2772,13 +2784,40 @@ app.get('/api/inventory/summary', async (_req, res) => {
        ORDER BY item_type ASC`
     );
 
-    const summary = (rows || []).map(r => ({
-      name: r.name || 'Unknown',
-      total: Number(r.total || 0),
-      defects: Number(r.defects || 0),
-      used: Number(r.used || 0),
-      available: Number(r.available || 0)
-    }));
+    const [typeRows] = await conn.query(
+      `SELECT DISTINCT TRIM(LOWER(item_type)) AS item_type
+       FROM mst_item
+       WHERE item_type IS NOT NULL AND TRIM(item_type) <> ''
+       ORDER BY CHAR_LENGTH(TRIM(item_type)) DESC`
+    );
+
+    const itemTypes = (typeRows || []).map(r => String(r.item_type || '').toLowerCase()).filter(Boolean);
+
+    const [pendingRows] = await conn.query(
+      `SELECT request_text
+       FROM requests
+       WHERE status = 'P'`
+    );
+
+    const pendingByType = {};
+    for (const row of (pendingRows || [])) {
+      const itemType = resolveInventoryTypeFromText(row?.request_text, itemTypes);
+      if (!itemType) continue;
+      pendingByType[itemType] = (pendingByType[itemType] || 0) + 1;
+    }
+
+    const summary = (rows || []).map(r => {
+      const name = String(r.name || 'Unknown');
+      const key = name.toLowerCase();
+      return {
+        name,
+        total: Number(r.total || 0),
+        defects: Number(r.defects || 0),
+        used: Number(r.used || 0),
+        available: Number(r.available || 0),
+        pending: Number(pendingByType[key] || 0)
+      };
+    });
 
     res.json({ success: true, summary });
   } catch (e) {
