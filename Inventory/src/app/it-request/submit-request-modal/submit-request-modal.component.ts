@@ -3,9 +3,18 @@ import { ModalController, IonicModule } from '@ionic/angular';
 import { FormsModule } from '@angular/forms';
 import { CommonModule } from '@angular/common';
 import { FloorplanApiService } from '../../services/floorplan-api';
+import { UserService } from '../../services/user.service';
 
 type RoomOption = { id: number; name: string };
-type BuildingOption = { id: number; name: string };
+
+type AssignedLocation = {
+  buildingId: number | null;
+  buildingName: string;
+  roomId: number | null;
+  roomName: string;
+  cubicleId: number | null;
+  cubicleLabel: string;
+};
 
 @Component({
   selector: 'app-submit-request-modal',
@@ -18,132 +27,108 @@ export class SubmitRequestModalComponent implements OnInit {
   // Optional preloaded rooms (e.g. from parent). If not provided, we load from server.
   @Input() roomsInput: RoomOption[] | null = null;
 
-  rooms: RoomOption[] = [];
-  buildings: BuildingOption[] = [];
-  buildingId: number | null = null;
-  roomId: number | null = null;
-  cubicleOptions: string[] = [];
-  cubicleNumber = '';
   peripheral = '';
   reason = '';
+  isLoadingLocation = true;
+  assignedLocation: AssignedLocation = {
+    buildingId: null,
+    buildingName: '',
+    roomId: null,
+    roomName: '',
+    cubicleId: null,
+    cubicleLabel: ''
+  };
 
   peripherals: Array<{ text: string; value: string }> = [];
   private currentUserId: number | null = null;
 
   constructor(
     private modalController: ModalController,
-    private floorplanApi: FloorplanApiService
+    private floorplanApi: FloorplanApiService,
+    private userService: UserService
   ) {}
 
   async ngOnInit() {
     this.currentUserId = this.getCurrentUserId();
     await Promise.all([
-      this.loadBuildings(),
-      this.loadRooms(),
+      this.loadAssignedLocation(),
       this.loadPeripherals(),
     ]);
-
-    // Default: if we have buildings, user must pick one (so rooms are scoped).
-    // If there are no buildings (fresh DB), keep the form empty.
   }
 
-  private async loadBuildings() {
+  private async loadAssignedLocation() {
+    const fallbackUser = this.getCurrentUser();
+    this.assignedLocation = {
+      buildingId: this.toNumberOrNull(fallbackUser?.building_id),
+      buildingName: String(fallbackUser?.building_name || '').trim(),
+      roomId: this.toNumberOrNull(fallbackUser?.room_id),
+      roomName: String(fallbackUser?.room_name || '').trim(),
+      cubicleId: this.toNumberOrNull(fallbackUser?.cubicle_id),
+      cubicleLabel: String(fallbackUser?.cubicle_label || '').trim()
+    };
+
     await new Promise<void>((resolve) => {
-      this.floorplanApi.listBuildings(this.currentUserId ?? undefined).subscribe({
+      if (!this.currentUserId) {
+        this.isLoadingLocation = false;
+        resolve();
+        return;
+      }
+
+      this.userService.getUsers().subscribe({
         next: (res: any) => {
-          if (res?.success && Array.isArray(res.buildings)) {
-            this.buildings = res.buildings
-              .map((b: any) => ({
-                id: Number(b.id),
-                name: String(b.building_name || '').trim(),
-              }))
-              .filter((b: BuildingOption) => Number.isFinite(b.id) && b.id > 0 && b.name.length > 0)
-              .sort((a: BuildingOption, b: BuildingOption) => a.name.localeCompare(b.name));
-          } else {
-            this.buildings = [];
+          const user = res?.success && Array.isArray(res.users)
+            ? res.users.find((item: any) => Number(item?.id) === this.currentUserId)
+            : null;
+
+          if (user) {
+            this.assignedLocation = {
+              buildingId: this.toNumberOrNull(user.building_id),
+              buildingName: String(user.building_name || '').trim(),
+              roomId: this.toNumberOrNull(user.room_id),
+              roomName: String(user.room_name || '').trim(),
+              cubicleId: this.toNumberOrNull(user.cubicle_id),
+              cubicleLabel: String(user.cubicle_label || '').trim()
+            };
           }
+          this.isLoadingLocation = false;
           resolve();
         },
         error: (err) => {
-          console.error('Load buildings for request modal failed:', err);
-          this.buildings = [];
+          console.error('Load assigned location for request modal failed:', err);
+          this.isLoadingLocation = false;
           resolve();
         },
       });
     });
   }
 
-  private getCurrentUserId(): number | null {
+  private getCurrentUser(): any | null {
     const raw = localStorage.getItem('user');
     if (!raw) return null;
+
     try {
-      const parsed = JSON.parse(raw);
-      if (parsed?.id !== undefined && parsed?.id !== null) {
-        const id = Number(parsed.id);
-        return Number.isFinite(id) ? id : null;
-      }
-      return null;
+      return JSON.parse(raw);
     } catch {
       return null;
     }
   }
 
-  private async loadRooms() {
-    if (Array.isArray(this.roomsInput) && this.roomsInput.length) {
-      this.rooms = this.roomsInput;
-      return;
+  private getCurrentUserId(): number | null {
+    const parsed = this.getCurrentUser();
+    if (parsed?.id !== undefined && parsed?.id !== null) {
+      const id = Number(parsed.id);
+      return Number.isFinite(id) ? id : null;
     }
-
-    await new Promise<void>((resolve) => {
-      // Default to empty until a building is selected.
-      this.rooms = [];
-      resolve();
-    });
+    return null;
   }
 
-  async onBuildingChange() {
-    this.roomId = null;
-    this.cubicleNumber = '';
-    this.cubicleOptions = [];
-
-    if (this.buildingId == null) {
-      this.rooms = [];
-      return;
+  private toNumberOrNull(value: unknown): number | null {
+    if (value === undefined || value === null || value === '') {
+      return null;
     }
 
-    await new Promise<void>((resolve) => {
-      this.floorplanApi.listBuildingRooms(this.buildingId as number).subscribe({
-        next: (res: any) => {
-          if (res?.success && Array.isArray(res.rooms)) {
-            this.rooms = res.rooms
-              .map((r: any) => ({
-                id: Number(r.id),
-                name: String(r.room_name || '').trim(),
-              }))
-              .filter((r: RoomOption) => Number.isFinite(r.id) && r.id > 0 && r.name.length > 0)
-              .sort((a: RoomOption, b: RoomOption) => a.name.localeCompare(b.name));
-          } else {
-            this.rooms = [];
-          }
-          resolve();
-        },
-        error: (err) => {
-          console.error('Load building rooms for request modal failed:', err);
-          this.rooms = [];
-          resolve();
-        },
-      });
-    });
-
-    if (this.rooms.length) {
-      this.roomId = this.rooms[0].id;
-      await this.updateCubicleOptions();
-    }
-  }
-
-  get buildingName(): string {
-    if (this.buildingId == null) return '';
-    return this.buildings.find((b) => b.id === this.buildingId)?.name ?? '';
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
   }
 
   private async loadPeripherals() {
@@ -166,44 +151,6 @@ export class SubmitRequestModalComponent implements OnInit {
     });
   }
 
-  async onRoomChange() {
-    this.cubicleNumber = '';
-    await this.updateCubicleOptions();
-  }
-
-  private async updateCubicleOptions() {
-    if (this.roomId == null) {
-      this.cubicleOptions = [];
-      return;
-    }
-
-    const roomId = this.roomId;
-    await new Promise<void>((resolve) => {
-      this.floorplanApi.loadFloorplan(String(roomId)).subscribe({
-        next: (res: any) => {
-          const cubicles = res?.success ? (res.floorplan?.layout?.cubicles || []) : [];
-          const labels = Array.isArray(cubicles)
-            ? cubicles
-                .map((c: any) => ({
-                  type: String(c?.type || c?.itemType || '').toLowerCase(),
-                  label: String(c?.label || '').trim(),
-                }))
-                .filter((c: any) => c.type === 'cubicle' && c.label.length > 0 && c.label !== '__ROOM__')
-                .map((c: any) => c.label)
-            : [];
-
-          this.cubicleOptions = [...new Set(labels)].sort((a, b) => a.localeCompare(b));
-          resolve();
-        },
-        error: (err) => {
-          console.error('Load cubicles for request modal failed:', err);
-          this.cubicleOptions = [];
-          resolve();
-        },
-      });
-    });
-  }
-
   private toTitleCase(input: string): string {
     return String(input || '')
       .trim()
@@ -218,18 +165,18 @@ export class SubmitRequestModalComponent implements OnInit {
   }
 
   submit() {
-    if (this.buildingId == null) {
-      alert('Please select a Building');
+    if (this.assignedLocation.buildingId == null || !this.assignedLocation.buildingName) {
+      alert('No building has been assigned by IT admin yet.');
       return;
     }
 
-    if (this.roomId == null) {
-      alert('Please select a Room');
+    if (this.assignedLocation.roomId == null || !this.assignedLocation.roomName) {
+      alert('No room has been assigned by IT admin yet.');
       return;
     }
 
-    if (!this.cubicleNumber) {
-      alert('Please select a Cubicle Number');
+    if (this.assignedLocation.cubicleId == null || !this.assignedLocation.cubicleLabel) {
+      alert('No cubicle has been assigned by IT admin yet.');
       return;
     }
 
@@ -238,15 +185,13 @@ export class SubmitRequestModalComponent implements OnInit {
       return;
     }
 
-    const roomName =
-      this.rooms.find((r) => r.id === this.roomId)?.name ?? String(this.roomId);
-
     this.modalController.dismiss({
-      buildingId: this.buildingId,
-      buildingName: this.buildingName,
-      roomId: this.roomId,
-      roomName,
-      cubicleNumber: this.cubicleNumber.trim(),
+      buildingId: this.assignedLocation.buildingId,
+      buildingName: this.assignedLocation.buildingName,
+      roomId: this.assignedLocation.roomId,
+      roomName: this.assignedLocation.roomName,
+      cubicleId: this.assignedLocation.cubicleId,
+      cubicleNumber: this.assignedLocation.cubicleLabel,
       peripheral: this.peripheral,
       reason: this.reason.trim()
     });

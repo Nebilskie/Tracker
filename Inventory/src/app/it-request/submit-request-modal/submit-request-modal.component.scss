@@ -51,6 +51,13 @@
   opacity: 0.7;
 }
 
+.static-field {
+  padding: 11px 12px;
+  font-size: 14px;
+  color: #334155;
+  background: #f8fafc;
+}
+
 ion-select::part(container),
 ion-select::part(text) {
   background: transparent;

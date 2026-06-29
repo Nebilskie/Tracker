@@ -149,5 +149,99 @@
     </div>
 
   </div>
+
+  <!-- Floating Add Button -->
+  <button class="floating-add-btn" (click)="openAddModal()" title="Add new inventory item">
+    <ion-icon name="add"></ion-icon>
+  </button>
+
+  <!-- Add Modal Overlay -->
+  <div class="add-modal-overlay" *ngIf="showAddModal" (click)="closeAddModal()">
+    <div class="add-modal" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h3>Add Inventory Item</h3>
+        <button class="close-btn" (click)="closeAddModal()">
+          <ion-icon name="close"></ion-icon>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Item Type -->
+        <div class="form-row">
+          <label>Item Type <span class="required">*</span></label>
+          <select [(ngModel)]="newItem.item_type" (ngModelChange)="onItemTypeChange()">
+            <option value="">Select type</option>
+            <option *ngFor="let t of assetTypesList" [value]="t">{{ displayLabel(t) }}</option>
+            <option value="*_CREATE_NEW_*">+ Create new Item type</option>
+          </select>
+          <div class="create-type-container" *ngIf="showCreateTypeInput">
+            <input #itemTypeInput type="text" placeholder="Enter new item type name" [(ngModel)]="newItemTypeName" />
+          </div>
+        </div>
+
+        <!-- Code -->
+        <div class="form-row">
+          <label>Code <span class="required">*</span></label>
+          <input type="text" [(ngModel)]="newItem.code" />
+        </div>
+
+        <!-- Details -->
+        <div class="form-row">
+          <label>Details</label>
+          <textarea rows="3" [(ngModel)]="newItem.item_details"></textarea>
+        </div>
+
+        <!-- Brand -->
+        <div class="form-row">
+          <label>Brand</label>
+          <select [(ngModel)]="newItem.brand_id">
+            <option [ngValue]="null">None</option>
+            <option *ngFor="let br of brands" [ngValue]="br.id">{{ br.brand_name || br.brandName || br.name }}</option>
+          </select>
+        </div>
+
+        <!-- Building -->
+        <div class="form-row">
+          <label>Building <span class="required">*</span></label>
+          <select [(ngModel)]="newItem.building_id" (ngModelChange)="onAddBuildingChange()">
+            <option [ngValue]="null" disabled>Select building</option>
+            <option *ngFor="let b of buildings" [ngValue]="b.id">{{ b.building_name || b.name }}</option>
+          </select>
+        </div>
+
+        <!-- Room -->
+        <div class="form-row">
+          <label>Room</label>
+          <select [(ngModel)]="newItem.room_id" (ngModelChange)="onAddRoomChange()" [disabled]="!newItem.building_id">
+            <option [ngValue]="null">None</option>
+            <option *ngFor="let r of rooms" [ngValue]="r.id">{{ r.room_name || r.name }}</option>
+          </select>
+        </div>
+
+        <!-- Cubicle -->
+        <div class="form-row">
+          <label>Cubicle</label>
+          <select [(ngModel)]="newItem.cubicle_id" [disabled]="!newItem.room_id">
+            <option [ngValue]="null">None</option>
+            <option *ngFor="let c of cubicles" [ngValue]="c.id">{{ c.label }}</option>
+          </select>
+        </div>
+
+        <!-- Status -->
+        <div class="form-row">
+          <label>Status <span class="required">*</span></label>
+          <select [(ngModel)]="newItem.status">
+            <option *ngFor="let s of statusOptions" [value]="s.value">{{ s.label }}</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="tool-btn cancel-btn" (click)="closeAddModal()">Cancel</button>
+        <button class="tool-btn save-btn" (click)="saveNewItem()">Save Item</button>
+      </div>
+    </div>
+  </div>
+
 </ion-content>
 

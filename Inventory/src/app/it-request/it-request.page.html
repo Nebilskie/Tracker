@@ -26,6 +26,9 @@
             *ngFor="let r of itemsByStatus(col.status)"
             (click)="onCardClick(col.status, r)">
 
+            <div class="card-header-row">
+              <span class="card-id">#{{ r.id }}</span>
+            </div>
             <div class="card-title">
               {{ r.title }}
             </div>
@@ -90,13 +93,30 @@
       <!-- REASON -->
       <div class="reason-row">
         <div class="reason-label">Reason:</div>
-        <div class="available-count" *ngIf="selectedRequest?.availableItemCount !== null">
+        <div class="available-count" *ngIf="shouldShowAvailability(selectedRequest)">
           Available: {{ selectedRequest.availableItemCount }}
         </div>
       </div>
 
       <div class="reason-box">
         {{ selectedRequest.reason || 'No reason provided' }}
+      </div>
+
+      <div class="item-type-row" *ngIf="isItemTypeSelectable(selectedRequest)">
+        <label class="item-type-label" for="item-type-select">
+          Available {{ extractRequestedItemName(selectedRequest.title) }} items
+        </label>
+        <select
+          id="item-type-select"
+          class="item-type-select"
+          [disabled]="isSavingItemType"
+          [ngModel]="selectedRequestItemCode"
+          (ngModelChange)="onSelectedItemTypeChange($event)">
+          <option value="">Select available item</option>
+          <option *ngFor="let option of getRequestItemOptions()" [value]="option.code">
+            {{ option.label }}
+          </option>
+        </select>
       </div>
 
       <!-- TIME + DATE -->
@@ -149,13 +169,13 @@
           REJECT
         </button>
 
-        <button *ngIf="selectedRequest.status === 'new' && selectedRequest.availableItemCount === 0"
+        <button *ngIf="selectedRequest.status === 'new' && (selectedRequest.availableItemCount || 0) <= 0"
                 class="btn-outline pending"
                 (click)="pendingRequest(selectedRequest)">
           PENDING
         </button>
 
-        <button *ngIf="selectedRequest.status === 'new' && selectedRequest.availableItemCount !== 0"
+        <button *ngIf="selectedRequest.status === 'new' && (selectedRequest.availableItemCount || 0) > 0"
                 class="btn-outline primary"
                 (click)="acceptRequest(selectedRequest)">
           ACCEPT
@@ -172,6 +192,13 @@
                 class="btn-outline success"
                 (click)="doneRequest(selectedRequest)">
           DONE
+        </button>
+
+        <!-- PENDING -->
+        <button *ngIf="selectedRequest.status === 'pending' && (selectedRequest.availableItemCount || 0) > 0"
+                class="btn-outline primary"
+                (click)="acceptRequest(selectedRequest)">
+          ACCEPT
         </button>
 
       </div>

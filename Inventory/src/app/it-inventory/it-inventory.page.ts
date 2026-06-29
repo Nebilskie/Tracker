@@ -1,9 +1,45 @@
-import { Component, HostListener, OnInit } from '@angular/core';
+import { Component, HostListener, OnInit, ViewChild, ElementRef } from '@angular/core';
 import { InventoryService, InventoryItem, InventorySummaryItem } from '../services/inventory.service';
 import { ItRequestService } from '../services/it-request.service';
+import { FloorplanApiService } from '../services/floorplan-api';
 
 export interface ColumnDef {
   key: string;
+  label: string;
+}
+
+export interface NewInventoryItem {
+  item_type: string;
+  code: string;
+  item_details: string;
+  brand_id: number | null;
+  building_id: number | null;
+  room_id: number | null;
+  cubicle_id: number | null;
+  status: string;
+}
+
+export interface Brand {
+  id: number;
+  brandName?: string;
+  brand_name?: string;
+  name?: string;
+}
+
+export interface Building {
+  id: number;
+  building_name?: string;
+  name?: string;
+}
+
+export interface Room {
+  id: number;
+  room_name?: string;
+  name?: string;
+}
+
+export interface Cubicle {
+  id: number;
   label: string;
 }
 
@@ -35,9 +71,41 @@ export class ItInventoryPage implements OnInit {
   // Export dropdown
   showExportDropdown = false;
 
+  // Add modal
+  showAddModal = false;
+  newItem: NewInventoryItem = this.initNewItem();
+  newItemTypeName = '';
+  showCreateTypeInput = false;
+  assetTypesList: string[] = [];
+  brands: Brand[] = [];
+  buildings: Building[] = [];
+  rooms: Room[] = [];
+  cubicles: Cubicle[] = [];
+  statusOptions = [
+    { value: '0', label: 'Defect' },
+    { value: '1', label: 'Available' },
+    { value: '2', label: 'Used' }
+  ];
+
+  @ViewChild('itemTypeInput') itemTypeInput?: ElementRef;
+
+  private initNewItem(): NewInventoryItem {
+    return {
+      item_type: '',
+      code: '',
+      item_details: '',
+      brand_id: null,
+      building_id: null,
+      room_id: null,
+      cubicle_id: null,
+      status: '1'
+    };
+  }
+
   constructor(
     private inventoryService: InventoryService,
-    private itRequestService: ItRequestService
+    private itRequestService: ItRequestService,
+    private floorplanApi: FloorplanApiService
   ) {}
 
   @HostListener('document:click', ['$event'])
@@ -69,15 +137,22 @@ export class ItInventoryPage implements OnInit {
       (res) => {
         if (res && res.success && Array.isArray(res.types)) {
           this.assetTypes = res.types;
+          this.assetTypesList = res.types;
         } else {
           this.assetTypes = [];
+          this.assetTypesList = [];
         }
       },
       (err) => {
         console.error('Failed to load item types', err);
         this.assetTypes = [];
+        this.assetTypesList = [];
       }
     );
+
+    // Load brands and buildings for the add modal
+    this.loadBrands();
+    this.loadBuildings();
 
     // Load summary view by default
     this.loadAssetData();
@@ -464,6 +539,161 @@ export class ItInventoryPage implements OnInit {
 
   get showingTo(): number {
     return Math.min(this.currentPage * this.pageSize, this.totalRows);
+  }
+
+  // ===== ADD MODAL METHODS =====
+  openAddModal() {
+    this.newItem = this.initNewItem();
+    this.newItemTypeName = '';
+    this.showCreateTypeInput = false;
+    this.showAddModal = true;
+  }
+
+  closeAddModal() {
+    this.showAddModal = false;
+    this.newItem = this.initNewItem();
+    this.newItemTypeName = '';
+    this.showCreateTypeInput = false;
+  }
+
+  onItemTypeChange() {
+    if (this.newItem.item_type === '*_CREATE_NEW_*') {
+      this.showCreateTypeInput = true;
+      this.newItem.item_type = '';
+      setTimeout(() => this.itemTypeInput?.nativeElement?.focus(), 0);
+    } else {
+      this.showCreateTypeInput = false;
+    }
+  }
+
+  onAddBuildingChange() {
+    this.newItem.room_id = null;
+    this.newItem.cubicle_id = null;
+    this.rooms = [];
+    this.cubicles = [];
+    if (this.newItem.building_id) {
+      this.loadRooms(this.newItem.building_id);
+    }
+  }
+
+  onAddRoomChange() {
+    this.newItem.cubicle_id = null;
+    this.cubicles = [];
+    if (this.newItem.room_id) {
+      this.loadCubicles(this.newItem.room_id);
+    }
+  }
+
+  private loadBrands() {
+    this.inventoryService.getBrands().subscribe(
+      (res: any) => {
+        this.brands = Array.isArray(res?.brands) ? res.brands : [];
+      },
+      (err: any) => {
+        console.error('Error loading brands:', err);
+        this.brands = [];
+      }
+    );
+  }
+
+  private loadBuildings() {
+    this.floorplanApi.listBuildings().subscribe(
+      (res) => {
+        if (res?.success && Array.isArray(res.buildings)) {
+          this.buildings = res.buildings;
+        } else {
+          this.buildings = [];
+        }
+      },
+      (err) => {
+        console.error('Error loading buildings:', err);
+        this.buildings = [];
+      }
+    );
+  }
+
+  private loadRooms(buildingId: number) {
+    this.floorplanApi.listBuildingRooms(buildingId).subscribe(
+      (res) => {
+        if (res?.success && Array.isArray(res.rooms)) {
+          this.rooms = res.rooms;
+        } else {
+          this.rooms = [];
+        }
+      },
+      (err) => {
+        console.error('Error loading rooms:', err);
+        this.rooms = [];
+      }
+    );
+  }
+
+  private loadCubicles(roomId: number) {
+    this.floorplanApi.listRoomCubicles(roomId).subscribe(
+      (res) => {
+        if (res?.success && Array.isArray(res.cubicles)) {
+          this.cubicles = res.cubicles;
+        } else {
+          this.cubicles = [];
+        }
+      },
+      (err) => {
+        console.error('Error loading cubicles:', err);
+        this.cubicles = [];
+      }
+    );
+  }
+
+  saveNewItem() {
+    // Validate required fields
+    if (!this.newItem.item_type?.trim()) {
+      alert('Please select or enter an item type');
+      return;
+    }
+    if (!this.newItem.code?.trim()) {
+      alert('Please enter a code');
+      return;
+    }
+    if (!this.newItem.status) {
+      alert('Please select a status');
+      return;
+    }
+    if (!this.newItem.building_id) {
+      alert('Please select a building');
+      return;
+    }
+
+    // If creating new item type
+    if (this.showCreateTypeInput && this.newItemTypeName.trim()) {
+      this.newItem.item_type = this.newItemTypeName.trim();
+    }
+
+    const payload = {
+      item_type: String(this.newItem.item_type).trim(),
+      code: String(this.newItem.code).trim(),
+      item_details: String(this.newItem.item_details || '').trim(),
+      brand_id: this.newItem.brand_id || null,
+      building_id: this.newItem.building_id,
+      room_id: this.newItem.room_id || null,
+      cubicle_id: this.newItem.cubicle_id || null,
+      status: String(this.newItem.status).trim()
+    };
+
+    this.inventoryService.createItem(payload).subscribe(
+      (response: any) => {
+        if (response?.success) {
+          alert('Item created successfully!');
+          this.closeAddModal();
+          this.loadAssetData();
+        } else {
+          alert(response?.error || 'Failed to create item');
+        }
+      },
+      (error: any) => {
+        console.error('Error creating item:', error);
+        alert('Error creating item. Please try again.');
+      }
+    );
   }
 }
 

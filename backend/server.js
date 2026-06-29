@@ -941,6 +941,18 @@ function extractCubicleLabel(requestText) {
   return match2 ? match2[1] : null;
 }
 
+function replaceRequestedItemTypeInText(requestText, itemType) {
+  const value = String(requestText || '').trim();
+  const type = String(itemType || '').trim();
+  if (!type) return value;
+
+  const marker = value.match(/\s+for\s+/i);
+  if (marker && typeof marker.index === 'number') {
+    return `${type}${value.substring(marker.index)}`;
+  }
+  return `${type} ${value}`.trim();
+}
+
 // not needed anymore: inventory columns removed; use mst_item for actual items
 
 async function setFloorplanInventoryValue(conn, roomId, label, itemType, itemCode) {
@@ -1307,19 +1319,31 @@ app.post("/login", async (req, res) => {
 // Inventory GET by type (also handles legacy /api/inventory/summary requests when routed here)
 app.get('/api/inventory/:type', async (req, res) => {
   const typeParam = String(req.params.type || '').trim();
+  const availableOnly = String(req.query?.availableOnly || '').trim() === '1';
+  const rawRequestId = Number(req.query?.requestId);
+  const requestId = Number.isFinite(rawRequestId) && rawRequestId > 0 ? rawRequestId : null;
   const conn = await pool.getConnection();
 
   try {
     // If client accidentally hits this route with 'summary', return the aggregated summary
     if (typeParam.toLowerCase() === 'summary') {
       const [sumRows] = await conn.query(
-        `SELECT TRIM(item_type) AS name,
+        `SELECT TRIM(i.item_type) AS name,
                 COUNT(*) AS total,
-                SUM(CASE WHEN status = 0 THEN 1 ELSE 0 END) AS defects,
-                SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END) AS used,
-                SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) AS available
-         FROM mst_item
-         GROUP BY TRIM(item_type)
+                SUM(CASE WHEN i.status = 0 THEN 1 ELSE 0 END) AS defects,
+                SUM(CASE WHEN i.status = 2 THEN 1 ELSE 0 END) AS used,
+                SUM(CASE WHEN i.status = 1 AND open_req.inventory_item_id IS NULL THEN 1 ELSE 0 END) AS available
+         FROM mst_item i
+         LEFT JOIN (
+           SELECT DISTINCT inventory_item_id
+           FROM requests
+           WHERE inventory_item_id IS NOT NULL
+             AND (
+               status IN ('I','P')
+               OR LOWER(TRIM(status)) IN ('inprogress','pending')
+             )
+         ) open_req ON open_req.inventory_item_id = i.id
+         GROUP BY TRIM(i.item_type)
          ORDER BY TRIM(item_type) ASC`
       );
 
@@ -1359,6 +1383,26 @@ app.get('/api/inventory/:type', async (req, res) => {
 
     // Normal per-type listing — compute a human-friendly location from cubicle/room/building
     console.log(`[inventory] requested type='${typeParam}'`);
+    const primaryWhere = [
+      `LOWER(TRIM(COALESCE(i.item_type,''))) = LOWER(TRIM(?))`
+    ];
+    const primaryParams = [];
+    let primaryReservationJoin = '';
+    if (availableOnly) {
+      primaryWhere.push('i.status = 1');
+      primaryWhere.push('open_req.id IS NULL');
+      primaryReservationJoin = `
+       LEFT JOIN requests open_req
+         ON open_req.inventory_item_id = i.id
+        AND (
+          open_req.status IN ('I','P')
+          OR LOWER(TRIM(open_req.status)) IN ('inprogress','pending')
+        )
+        AND (? IS NULL OR open_req.id <> ?)`;
+      primaryParams.push(requestId, requestId);
+    }
+    primaryParams.push(typeParam);
+
     const [rows] = await conn.query(
       `SELECT i.id,
               i.item_type,
@@ -1382,15 +1426,36 @@ app.get('/api/inventory/:type', async (req, res) => {
        LEFT JOIN mst_room rm_cub ON rm_cub.id = c.room_id
        LEFT JOIN mst_room rm_item ON rm_item.id = i.room_id
        LEFT JOIN mst_building bld ON bld.id = i.building_id
-       WHERE LOWER(TRIM(COALESCE(i.item_type,''))) = LOWER(TRIM(?))
+      ${primaryReservationJoin}
+       WHERE ${primaryWhere.join(' AND ')}
        ORDER BY i.code ASC`,
-      [typeParam]
+      primaryParams
     );
 
     console.log(`[inventory] primary query returned ${rows.length} rows`);
 
     // Fallback: if primary query returned nothing, try a permissive LIKE match (handles variants)
     if (!rows.length) {
+      const fallbackWhere = [
+        `LOWER(COALESCE(i.item_type,'')) LIKE LOWER(CONCAT('%', ?, '%'))`
+      ];
+      const fallbackParams = [];
+      let fallbackReservationJoin = '';
+      if (availableOnly) {
+        fallbackWhere.push('i.status = 1');
+        fallbackWhere.push('open_req.id IS NULL');
+        fallbackReservationJoin = `
+         LEFT JOIN requests open_req
+           ON open_req.inventory_item_id = i.id
+          AND (
+            open_req.status IN ('I','P')
+            OR LOWER(TRIM(open_req.status)) IN ('inprogress','pending')
+          )
+          AND (? IS NULL OR open_req.id <> ?)`;
+        fallbackParams.push(requestId, requestId);
+      }
+      fallbackParams.push(typeParam);
+
       const [fallbackRows] = await conn.query(
         `SELECT i.id,
                 i.item_type,
@@ -1411,9 +1476,10 @@ app.get('/api/inventory/:type', async (req, res) => {
          LEFT JOIN mst_room rm_cub ON rm_cub.id = c.room_id
          LEFT JOIN mst_room rm_item ON rm_item.id = i.room_id
          LEFT JOIN mst_building bld ON bld.id = i.building_id
-         WHERE LOWER(COALESCE(i.item_type,'')) LIKE LOWER(CONCAT('%', ?, '%'))
+         ${fallbackReservationJoin}
+         WHERE ${fallbackWhere.join(' AND ')}
          ORDER BY i.code ASC`,
-        [typeParam]
+        fallbackParams
       );
 
       console.log(`[inventory] fallback LIKE query returned ${fallbackRows.length} rows`);
@@ -2551,8 +2617,53 @@ app.get('/api/items/types', async (_req, res) => {
 });
 
 app.post('/api/items', async (req, res) => {
-  // Creating master items is not supported via this endpoint in current build
-  res.status(410).json({ success: false, error: 'Endpoint not supported' });
+  const { item_type, code, item_details, brand_id, building_id, room_id, cubicle_id, status } = req.body || {};
+
+  // Validate required fields
+  if (!item_type || !String(item_type).trim()) {
+    return res.status(400).json({ success: false, error: 'item_type is required' });
+  }
+  if (!code || !String(code).trim()) {
+    return res.status(400).json({ success: false, error: 'code is required' });
+  }
+  if (status === undefined || status === null || String(status).trim() === '') {
+    return res.status(400).json({ success: false, error: 'status is required' });
+  }
+  if (!building_id) {
+    return res.status(400).json({ success: false, error: 'building_id is required' });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    const trimmedItemType = String(item_type).trim();
+    const trimmedCode = String(code).trim();
+    const trimmedDetails = item_details ? String(item_details).trim() : null;
+    const statusNum = parseInt(String(status).trim(), 10);
+    const finalBrandId = brand_id ? parseInt(brand_id, 10) : null;
+    const finalBuildingId = parseInt(building_id, 10);
+    const finalRoomId = room_id ? parseInt(room_id, 10) : null;
+    const finalCubicleId = cubicle_id ? parseInt(cubicle_id, 10) : null;
+
+    // Insert into mst_item
+    const [result] = await conn.query(
+      `INSERT INTO mst_item (item_type, code, item_details, brand_id, building_id, room_id, cubicle_id, status, last_update)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [trimmedItemType, trimmedCode, trimmedDetails, finalBrandId, finalBuildingId, finalRoomId, finalCubicleId, statusNum]
+    );
+
+    res.json({ success: true, id: result.insertId });
+  } catch (err) {
+    console.error('❌ POST /api/items error:', err);
+    if (err.code === 'ER_DUP_ENTRY') {
+      return res.status(400).json({ success: false, error: 'Item with this type and code already exists' });
+    }
+    if (err.code === 'ER_NO_REFERENCED_ROW_2') {
+      return res.status(400).json({ success: false, error: 'Invalid building_id, room_id, or cubicle_id reference' });
+    }
+    res.status(500).json({ success: false, error: 'Failed to create item' });
+  } finally {
+    conn.release();
+  }
 });
 
 app.post('/api/items/import', async (req, res) => {
@@ -2840,13 +2951,22 @@ app.get('/api/inventory/summary', async (_req, res) => {
   const conn = await pool.getConnection();
   try {
     const [rows] = await conn.query(
-      `SELECT TRIM(item_type) AS name,
+      `SELECT TRIM(i.item_type) AS name,
               COUNT(*) AS total,
-              SUM(CASE WHEN status = 0 THEN 1 ELSE 0 END) AS defects,
-              SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END) AS used,
-              SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) AS available
-       FROM mst_item
-       GROUP BY item_type
+              SUM(CASE WHEN i.status = 0 THEN 1 ELSE 0 END) AS defects,
+              SUM(CASE WHEN i.status = 2 THEN 1 ELSE 0 END) AS used,
+              SUM(CASE WHEN i.status = 1 AND open_req.inventory_item_id IS NULL THEN 1 ELSE 0 END) AS available
+       FROM mst_item i
+       LEFT JOIN (
+         SELECT DISTINCT inventory_item_id
+         FROM requests
+         WHERE inventory_item_id IS NOT NULL
+           AND (
+             status IN ('I','P')
+             OR LOWER(TRIM(status)) IN ('inprogress','pending')
+           )
+       ) open_req ON open_req.inventory_item_id = i.id
+       GROUP BY i.item_type
        ORDER BY item_type ASC`
     );
 
@@ -3049,10 +3169,6 @@ app.put('/api/it-requests/:id', async (req, res) => {
     const [reqRows] = await conn.query('SELECT request_text FROM requests WHERE id = ?', [requestId]);
     const requestText = reqRows?.[0]?.request_text || '';
 
-    if (normalizedStatus === 'I') {
-      await reserveRequestedItem(conn, requestId, requestText);
-    }
-
     if (normalizedStatus === 'C') {
       await markRequestedItemUsed(conn, requestId, requestText);
     }
@@ -3068,6 +3184,113 @@ app.put('/api/it-requests/:id', async (req, res) => {
     try { await conn.rollback(); } catch (_) {}
     console.error('❌ Update status error:', e);
     res.status(500).json({ success: false, error: e.message || 'Database error' });
+  } finally {
+    conn.release();
+  }
+});
+
+app.put('/api/it-requests/:id/item-type', async (req, res) => {
+  const requestId = Number(req.params.id);
+  const itemCode = String(req.body?.itemCode || '').trim();
+
+  if (!requestId || !itemCode) {
+    return res.status(400).json({ success: false, error: 'request id and itemCode are required' });
+  }
+
+  const conn = await pool.getConnection();
+
+  try {
+    await conn.beginTransaction();
+
+    const [rows] = await conn.query(
+      'SELECT status, request_text, inventory_item_id FROM requests WHERE id = ?',
+      [requestId]
+    );
+
+    if (!rows.length) {
+      await conn.rollback();
+      return res.status(404).json({ success: false, error: 'Request not found' });
+    }
+
+    const currentStatus = normalizeRequestStatus(rows[0].status);
+    const requestText = rows[0].request_text || '';
+    const currentItemId = rows[0].inventory_item_id || null;
+    const requestedType = await resolveInventoryTableFromRequestText(conn, requestText);
+
+    const [itemRows] = await conn.query(
+      `SELECT id, code, item_type, status
+       FROM mst_item
+       WHERE LOWER(TRIM(code)) = LOWER(TRIM(?))
+       LIMIT 1`,
+      [itemCode]
+    );
+
+    if (!itemRows.length) {
+      await conn.rollback();
+      return res.status(404).json({ success: false, error: 'Selected item not found' });
+    }
+
+    const item = itemRows[0];
+    const selectedItemId = item.id;
+    const selectedItemCode = item.code;
+    const selectedItemType = String(item.item_type || '').trim().toLowerCase();
+    const selectedItemStatus = Number(item.status);
+
+    if (selectedItemStatus !== 1) {
+      await conn.rollback();
+      return res.status(400).json({ success: false, error: 'Selected item is not available' });
+    }
+
+    if (requestedType && selectedItemType !== String(requestedType).toLowerCase()) {
+      await conn.rollback();
+      return res.status(400).json({ success: false, error: `Selected item must be of type ${requestedType}` });
+    }
+
+    const [reservedRows] = await conn.query(
+      `SELECT id
+       FROM requests
+       WHERE id <> ?
+         AND inventory_item_id = ?
+         AND (
+           status IN ('I', 'P')
+           OR LOWER(TRIM(status)) IN ('inprogress', 'pending')
+         )
+       LIMIT 1`,
+      [requestId, selectedItemId]
+    );
+
+    if (reservedRows.length) {
+      await conn.rollback();
+      return res.status(409).json({ success: false, error: 'Selected item is already assigned to another open request' });
+    }
+
+    if ((currentStatus === 'I' || currentStatus === 'P') && currentItemId && currentItemId !== selectedItemId) {
+      await releaseReservedItem(conn, requestId, requestText);
+    }
+
+    await conn.query(
+      `UPDATE requests
+       SET inventory_table = 'mst_item',
+           inventory_item_id = ?,
+           inventory_item_name = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [selectedItemId, selectedItemCode, requestId]
+    );
+
+    await conn.commit();
+
+    return res.json({
+      success: true,
+      requestId,
+      itemId: selectedItemId,
+      itemCode: selectedItemCode,
+      itemType: selectedItemType
+    });
+  } catch (e) {
+    try { await conn.rollback(); } catch (_) {}
+    console.error('❌ Update request item error:', e);
+    return res.status(500).json({ success: false, error: e.message || 'Database error' });
   } finally {
     conn.release();
   }

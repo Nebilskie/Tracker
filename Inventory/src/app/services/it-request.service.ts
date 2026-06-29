@@ -86,4 +86,18 @@ export class ItRequestService {
       })
     );
   }
+
+  updateRequestItemType(requestId: number, itemCode: string): Observable<any> {
+    return this.http.put<any>(`${this.apiUrl}/${requestId}/item-type`, {
+      itemCode
+    }).pipe(
+      tap((response) => {
+        console.log('Request item updated:', response);
+      }),
+      catchError((error) => {
+        console.error('Error updating request item:', error);
+        return of({ success: false, error });
+      })
+    );
+  }
 }

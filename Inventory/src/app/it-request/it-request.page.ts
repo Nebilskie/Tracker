@@ -1,6 +1,6 @@
 import { Component, OnInit } from '@angular/core';
 import { ItRequestService } from '../services/it-request.service';
-import { InventoryService, InventorySummaryItem } from '../services/inventory.service';
+import { InventoryService, InventorySummaryItem, InventoryItem } from '../services/inventory.service';
 import { ModalController, AlertController } from '@ionic/angular';
 import { SubmitRequestModalComponent } from './submit-request-modal/submit-request-modal.component';
 
@@ -18,6 +18,7 @@ interface RequestItem {
   rejectedAt?: string;
   pendingAt?: string;
   rejectedFrom?: 'new' | 'inprogress' | null;
+  inventory_item_id?: number | null;
   inventory_item_name?: string | null;
   availableItemCount?: number | null;
 }
@@ -46,6 +47,9 @@ export class ItRequestPage implements OnInit {
 
   requests: RequestItem[] = [];
   selectedRequest: RequestItem | null = null;
+  selectedRequestItemCode = '';
+  availableRequestItems: InventoryItem[] = [];
+  isSavingItemType = false;
   showDetailModal = false;
   currentUser: UserData | null = null;
   inventorySummary: InventorySummaryItem[] = [];
@@ -94,6 +98,7 @@ export class ItRequestPage implements OnInit {
               rejectedAt: req.rejected_at ? new Date(req.rejected_at).toLocaleString() : undefined,
               pendingAt: req.pending_at ? new Date(req.pending_at).toLocaleString() : undefined,
               rejectedFrom: req.rejected_from || null,
+              inventory_item_id: req.inventory_item_id ?? null,
               inventory_item_name: req.inventory_item_name || null,
               availableItemCount: null
             }));
@@ -142,27 +147,36 @@ export class ItRequestPage implements OnInit {
     this.openRequestDetail(request);
   }
 
-  openRequestDetail(request: RequestItem) {
+  async openRequestDetail(request: RequestItem) {
+    await this.loadInventorySummary();
     this.selectedRequest = request;
+    this.selectedRequestItemCode = String(request.inventory_item_name || '').trim();
+    this.loadAvailableRequestItems(request);
     this.showDetailModal = true;
     this.loadAvailableItemCount(request);
   }
 
   closeDetailModal() {
+    this.selectedRequestItemCode = '';
+    this.availableRequestItems = [];
     this.selectedRequest = null;
     this.showDetailModal = false;
   }
 
-  private loadInventorySummary() {
-    this.inventoryService.getSummary().subscribe(
-      (response) => {
-        this.inventorySummary = Array.isArray(response?.summary) ? response.summary : [];
-      },
-      (error) => {
-        console.error('Error loading inventory summary:', error);
-        this.inventorySummary = [];
-      }
-    );
+  private loadInventorySummary(): Promise<void> {
+    return new Promise((resolve) => {
+      this.inventoryService.getSummary().subscribe(
+        (response) => {
+          this.inventorySummary = Array.isArray(response?.summary) ? response.summary : [];
+          resolve();
+        },
+        (error) => {
+          console.error('Error loading inventory summary:', error);
+          this.inventorySummary = [];
+          resolve();
+        }
+      );
+    });
   }
 
   private loadAvailableItemCount(request: RequestItem) {
@@ -170,7 +184,7 @@ export class ItRequestPage implements OnInit {
       return;
     }
 
-    const itemName = (request.inventory_item_name || this.extractRequestedItemName(request.title || '')).trim();
+    const itemName = this.extractRequestedItemName(request.title || '').trim();
     if (!itemName) {
       request.availableItemCount = null;
       return;
@@ -185,7 +199,97 @@ export class ItRequestPage implements OnInit {
     request.availableItemCount = match ? Number(match.available || 0) : null;
   }
 
-  private extractRequestedItemName(text: string): string {
+  private loadAvailableRequestItems(request: RequestItem) {
+    const requestedType = this.extractRequestedItemName(request?.title || '').trim();
+    if (!requestedType) {
+      this.availableRequestItems = [];
+      return;
+    }
+
+    this.inventoryService.getItems(requestedType, true, request.id).subscribe(
+      (response) => {
+        const allItems = Array.isArray(response?.items) ? response.items : [];
+        this.availableRequestItems = allItems.filter((item) => {
+          const status = Number(item?.status);
+          return status === 1;
+        });
+      },
+      (error) => {
+        console.error('Error loading available request items:', error);
+        this.availableRequestItems = [];
+      }
+    );
+  }
+
+  getRequestItemOptions(): { code: string; label: string }[] {
+    return (this.availableRequestItems || [])
+      .map((item) => {
+        const code = String(item.code || '').trim();
+        const location = String(item.location || '').trim();
+        return {
+          code,
+          label: location ? `${code} (${location})` : code
+        };
+      })
+      .filter((item) => !!item.code);
+  }
+
+  isItemTypeSelectable(request: RequestItem | null): boolean {
+    return !!request && (request.status === 'inprogress' || request.status === 'pending');
+  }
+
+  shouldShowAvailability(request: RequestItem | null): boolean {
+    return !!request
+      && request.availableItemCount !== null
+      && request.status !== 'completed';
+  }
+
+  onSelectedItemTypeChange(itemCode: string) {
+    this.selectedRequestItemCode = itemCode;
+    if (!this.selectedRequest || !itemCode || this.isSavingItemType) {
+      return;
+    }
+    this.saveRequestItemType(this.selectedRequest, itemCode);
+  }
+
+  private async saveRequestItemType(request: RequestItem, itemCode: string) {
+    if (!request?.id) {
+      await this.showAlert('Error', 'Request ID not found');
+      return;
+    }
+
+    this.isSavingItemType = true;
+    this.itRequestService.updateRequestItemType(request.id, itemCode).subscribe(
+      async (response: any) => {
+        this.isSavingItemType = false;
+        if (!response?.success) {
+          await this.showAlert('Error', 'Failed to update requested item');
+          return;
+        }
+
+        request.inventory_item_id = response?.itemId ?? request.inventory_item_id ?? null;
+        request.inventory_item_name = response?.itemCode || itemCode;
+        await this.loadInventorySummary();
+        this.loadAvailableItemCount(request);
+
+        await this.loadRequests();
+        if (this.selectedRequest?.id === request.id) {
+          const refreshed = this.requests.find((r) => r.id === request.id) || request;
+          this.selectedRequest = refreshed;
+          this.selectedRequestItemCode = String(refreshed.inventory_item_name || '').trim();
+          this.loadAvailableRequestItems(refreshed);
+          this.loadAvailableItemCount(refreshed);
+        }
+      },
+      async (error) => {
+        this.isSavingItemType = false;
+        console.error('Error updating request item type:', error);
+        await this.showAlert('Error', 'Failed to update requested item. Please try again.');
+      }
+    );
+  }
+
+  extractRequestedItemName(text: string): string {
     const value = String(text || '').trim();
     const lowercase = value.toLowerCase();
     const match = lowercase.match(/^([a-z0-9]+)(?:\s+for|\s+request|\s+to|\s+in|$)/);
@@ -251,6 +355,7 @@ export class ItRequestPage implements OnInit {
       async (response: any) => {
         if (response?.success) {
           await this.showAlert('Success', successMsg);
+          await this.loadInventorySummary();
           await this.loadRequests();
           this.closeDetailModal();
         } else {

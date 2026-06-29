@@ -4,10 +4,16 @@ import { Observable } from 'rxjs';
 
 export interface InventoryItem {
   id?: number;
+  code?: string;
+  item_type?: string;
+  item_details?: string;
   name?: string;
   status?: string | number;
   manufacturer?: string;
   location?: string;
+  cubicle_label?: string;
+  room_name?: string;
+  building_name?: string;
   model?: string;
   last_update?: string;
   serial_number?: string;
@@ -35,8 +41,16 @@ export class InventoryService {
     return this.http.get<{ success: boolean; summary: InventorySummaryItem[] }>(`${this.apiBase}/inventory/summary`);
   }
 
-  getItems(type: string): Observable<{ success: boolean; items: InventoryItem[] }> {
-    return this.http.get<{ success: boolean; items: InventoryItem[] }>(`${this.apiBase}/inventory/${encodeURIComponent(type)}`);
+  getItems(type: string, availableOnly: boolean = false, requestId?: number): Observable<{ success: boolean; items: InventoryItem[] }> {
+    const params = new URLSearchParams();
+    if (availableOnly) {
+      params.set('availableOnly', '1');
+    }
+    if (requestId != null) {
+      params.set('requestId', String(requestId));
+    }
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return this.http.get<{ success: boolean; items: InventoryItem[] }>(`${this.apiBase}/inventory/${encodeURIComponent(type)}${query}`);
   }
 
   importItems(type: string, csvData: any[]): Observable<{ success: boolean; imported: number; skipped: number; errors?: string[] }> {
@@ -65,5 +79,13 @@ export class InventoryService {
 
   getAllItems(): Observable<{ success: boolean; items: any[] }> {
     return this.http.get<{ success: boolean; items: any[] }>(`${this.apiBase}/items`);
+  }
+
+  getBrands(): Observable<{ success: boolean; brands: any[] }> {
+    return this.http.get<{ success: boolean; brands: any[] }>(`${this.apiBase}/brands`);
+  }
+
+  createItem(payload: any): Observable<{ success: boolean; id?: number; error?: string }> {
+    return this.http.post<{ success: boolean; id?: number; error?: string }>(`${this.apiBase}/items`, payload);
   }
 }

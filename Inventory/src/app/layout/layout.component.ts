@@ -2,6 +2,7 @@ import { Component, OnInit, ChangeDetectorRef, Renderer2, OnDestroy } from '@ang
 import { IonicModule } from '@ionic/angular';
 import { CommonModule } from '@angular/common';
 import { RouterModule, Router, NavigationEnd } from '@angular/router';
+import { UserService } from '../services/user.service';
 
 interface Language {
   code: string;
@@ -39,12 +40,14 @@ export class LayoutComponent implements OnInit, OnDestroy {
   constructor(
     private router: Router,
     private cdr: ChangeDetectorRef,
-    private renderer: Renderer2
+    private renderer: Renderer2,
+    private userService: UserService
   ) {}
 
   ngOnInit() {
     this.loadUserName();
     this.loadUserRole();
+    this.loadAssignedLocation();
 
     // Load and apply dark mode from localStorage
     this.isDarkMode = localStorage.getItem('darkMode') === 'true';
@@ -62,6 +65,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // Refresh user info/role on every navigation so the sidebar matches the current session user
         this.loadUserName();
         this.loadUserRole();
+        this.loadAssignedLocation();
       }
     });
 
@@ -69,11 +73,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
   }
 
   loadUserName() {
-    const user = localStorage.getItem('user');
+    const user = this.getStoredUser();
     if (user) {
       try {
-        const userData = JSON.parse(user);
-        this.userName = userData.username || userData.name || 'User';
+        this.userName = user.username || user.name || 'User';
       } catch (error) {
         console.error('Error parsing user data:', error);
         this.userName = 'User';
@@ -84,17 +87,11 @@ export class LayoutComponent implements OnInit, OnDestroy {
   }
 
   loadUserRole() {
-    const user = localStorage.getItem('user');
+    const user = this.getStoredUser();
     if (user) {
       try {
-        const userData = JSON.parse(user);
-        this.userRole = userData.role || 'User';
-        // Try multiple possible field names for location
-        this.userLocation = userData.location || 
-                           userData.building_name || 
-                           userData.cubicle_label ||
-                           userData.assignedLocation ||
-                           'Not assigned';
+        this.userRole = user.role || 'User';
+        this.userLocation = this.formatUserLocation(user);
       } catch (error) {
         console.error('Error parsing user data:', error);
         this.userRole = 'User';
@@ -109,9 +106,78 @@ export class LayoutComponent implements OnInit, OnDestroy {
     this.isUser = role === 'USER' || role === 'MANAGER';
   }
 
+  private getStoredUser(): any | null {
+    const rawUser = localStorage.getItem('user');
+    if (!rawUser) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(rawUser);
+    } catch (error) {
+      console.error('Error parsing user data:', error);
+      return null;
+    }
+  }
+
+  private formatUserLocation(userData: any): string {
+    const buildingName = String(userData?.building_name || '').trim();
+    const roomName = String(userData?.room_name || '').trim();
+    const cubicleLabel = String(userData?.cubicle_label || '').trim();
+
+    const parts = [
+      buildingName,
+      roomName ? `Room ${roomName}` : '',
+      cubicleLabel ? `Cubicle ${cubicleLabel}` : ''
+    ].filter((part) => part.length > 0);
+
+    if (parts.length > 0) {
+      return parts.join(' | ');
+    }
+
+    const fallbackLocation = String(
+      userData?.location || userData?.assignedLocation || ''
+    ).trim();
+
+    return fallbackLocation || 'Not assigned';
+  }
+
+  private loadAssignedLocation() {
+    const storedUser = this.getStoredUser();
+    const userId = Number(storedUser?.id);
+
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return;
+    }
+
+    this.userService.getUsers().subscribe({
+      next: (response) => {
+        const currentUser = Array.isArray(response?.users)
+          ? response.users.find((user: any) => Number(user?.id) === userId)
+          : null;
+
+        if (!currentUser) {
+          return;
+        }
+
+        const mergedUser = { ...storedUser, ...currentUser };
+        localStorage.setItem('user', JSON.stringify(mergedUser));
+        this.userName = mergedUser.username || mergedUser.name || 'User';
+        this.userRole = mergedUser.role || 'User';
+        this.userLocation = this.formatUserLocation(mergedUser);
+        this.isUser = ['USER', 'MANAGER'].includes(String(this.userRole || '').toUpperCase());
+        this.cdr.detectChanges();
+      },
+      error: (error) => {
+        console.error('Error loading assigned user location:', error);
+      }
+    });
+  }
+
   toggleUserMenu() {
     this.loadUserName();
     this.loadUserRole();
+    this.loadAssignedLocation();
     this.cdr.detectChanges();
     this.isUserMenuOpen = !this.isUserMenuOpen;
     if (!this.isUserMenuOpen) {

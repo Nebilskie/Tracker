@@ -1,6 +1,5 @@
 import { Component, OnInit } from '@angular/core';
 import { ItRequestService } from '../services/it-request.service';
-import { FloorplanApiService } from '../services/floorplan-api';
 import { ModalController, AlertController } from '@ionic/angular';
 import { SubmitRequestModalComponent } from '../it-request/submit-request-modal/submit-request-modal.component';
 
@@ -10,12 +9,13 @@ interface RequestItem {
   ownerInitials: string;
   username?: string;
   reason?: string;
-  status: 'new' | 'inprogress' | 'completed' | 'rejected';
+  status: 'new' | 'inprogress' | 'completed' | 'rejected' | 'pending';
   time: string;
   date: string;
   inprogressAt?: string;
   completedAt?: string;
   rejectedAt?: string;
+  pendingAt?: string;
   rejectedFrom?: 'new' | 'inprogress' | null;
 }
 
@@ -36,7 +36,8 @@ export class UserRequestPage implements OnInit {
     { label: 'New', status: 'new' },
     { label: 'In-Progress', status: 'inprogress' },
     { label: 'Completed', status: 'completed' },
-    { label: 'Rejected', status: 'rejected' }
+    { label: 'Rejected', status: 'rejected' },
+    { label: 'Pending', status: 'pending' }
   ];
 
   requests: RequestItem[] = [];
@@ -45,47 +46,15 @@ export class UserRequestPage implements OnInit {
   selectedRequest: RequestItem | null = null;
   showDetailModal = false;
 
-  floorplanRows: Array<{ room_id?: string; label?: string }> = [];
-  roomOptions: string[] = [];
-
   constructor(
     private itRequestService: ItRequestService,
-    private floorplanApi: FloorplanApiService,
     private modalController: ModalController,
     private alertController: AlertController
   ) {}
 
   ngOnInit() {
     this.loadCurrentUser();
-    this.loadFloorplanData();
     this.loadRequests();
-  }
-
-  loadFloorplanData() {
-    this.floorplanApi.listFloorplans().subscribe({
-      next: (response: any) => {
-        if (response?.success && Array.isArray(response.floorplans)) {
-          this.floorplanRows = response.floorplans.map((item: any) => ({
-            room_id: item.room_id != null ? String(item.room_id) : '',
-            label: item.label
-          }));
-
-          this.roomOptions = [...new Set(
-            this.floorplanRows
-              .map((fp) => fp.room_id)
-              .filter((roomId): roomId is string => typeof roomId === 'string' && roomId.trim().length > 0)
-          )].sort((a, b) => a.localeCompare(b));
-        } else {
-          this.floorplanRows = [];
-          this.roomOptions = [];
-        }
-      },
-      error: (error) => {
-        console.error('Error loading floorplans for room/cubicle dropdown:', error);
-        this.floorplanRows = [];
-        this.roomOptions = [];
-      }
-    });
   }
 
   loadCurrentUser() {
@@ -136,6 +105,9 @@ export class UserRequestPage implements OnInit {
                 rejectedAt: req.rejected_at
                   ? new Date(req.rejected_at).toLocaleString()
                   : undefined,
+                pendingAt: req.pending_at
+                  ? new Date(req.pending_at).toLocaleString()
+                  : undefined,
                 rejectedFrom: req.rejected_from || null
               }));
 
@@ -161,6 +133,8 @@ export class UserRequestPage implements OnInit {
         return 'completed';
       case 'R':
         return 'rejected';
+      case 'P':
+        return 'pending';
       case 'new':
         return 'new';
       case 'inprogress':
@@ -169,6 +143,8 @@ export class UserRequestPage implements OnInit {
         return 'completed';
       case 'rejected':
         return 'rejected';
+      case 'pending':
+        return 'pending';
       default:
         return 'new';
     }
@@ -208,6 +184,8 @@ export class UserRequestPage implements OnInit {
         return 'Completed';
       case 'rejected':
         return 'Rejected';
+      case 'pending':
+        return 'Pending';
       default:
         return status;
     }
@@ -222,11 +200,7 @@ export class UserRequestPage implements OnInit {
     const modal = await this.modalController.create({
       component: SubmitRequestModalComponent,
       cssClass: 'request-modal-container',
-      showBackdrop: false,
-      componentProps: {
-        roomOptions: this.roomOptions,
-        floorplanRows: this.floorplanRows
-      }
+      showBackdrop: false
     });
 
     await modal.present();
@@ -235,7 +209,7 @@ export class UserRequestPage implements OnInit {
 
     if (data?.roomId && data?.cubicleNumber && data?.peripheral) {
       this.submitRequest(
-        `${data.peripheral} for Cubicle ${data.cubicleNumber} in Room ${data.roomId}`,
+        `${data.peripheral} for Cubicle ${data.cubicleNumber} in Room ${data.roomName || data.roomId}${data.buildingName ? ` (${data.buildingName})` : ''}`,
         data.reason || ''
       );
     }

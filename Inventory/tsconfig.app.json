@@ -10,6 +10,11 @@
     "src/polyfills.ts"
   ],
   "include": [
-    "src/**/*.d.ts"
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "src/environments/**/*.ts",
+    "src/**/*.spec.ts",
+    "src/test.ts"
   ]
 }

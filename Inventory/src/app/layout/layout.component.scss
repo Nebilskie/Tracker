@@ -139,9 +139,41 @@ ion-header {
   position: relative;
 }
 
+.header-user-location {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  padding-right: 8px;
+  margin-right: 2px;
+  max-width: 250px;
+}
+
+.header-user-location-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.8);
+  line-height: 1.1;
+}
+
+.header-user-location-value {
+  font-size: 11px;
+  font-weight: 600;
+  color: #ffffff;
+  line-height: 1.2;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 250px;
+}
+
 .user-details {
   display: flex;
   flex-direction: column;
+  align-items: flex-end;
+  max-width: 280px;
 }
 
 .user-name {
@@ -161,6 +193,14 @@ ion-header {
   font-size: 30px;
   color: #667eea;
   cursor: pointer;
+}
+
+:host-context(.dark-theme) .header-user-location-label {
+  color: rgba(231, 233, 255, 0.78);
+}
+
+:host-context(.dark-theme) .header-user-location-value {
+  color: #eef2ff;
 }
 
 /* User Dropdown Menu Styles */
@@ -240,9 +280,8 @@ ion-header {
   color: #0f172a;
   margin: 4px 0 0 0;
   display: block;
-  line-height: 1.2;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
   font-weight: 600;
 }
 

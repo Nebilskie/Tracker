@@ -104,7 +104,8 @@
         *ngIf="
           selectedRequest.inprogressAt ||
           selectedRequest.completedAt ||
-          selectedRequest.rejectedAt
+          selectedRequest.rejectedAt ||
+          selectedRequest.pendingAt
         "
       >
         <div class="td-col" *ngIf="selectedRequest.inprogressAt">
@@ -118,6 +119,10 @@
         <div class="td-col" *ngIf="selectedRequest.rejectedAt">
           <div class="td-label">Rejected at</div>
           <div class="td-value">{{ selectedRequest.rejectedAt }}</div>
+        </div>
+        <div class="td-col" *ngIf="selectedRequest.pendingAt">
+          <div class="td-label">Pending at</div>
+          <div class="td-value">{{ selectedRequest.pendingAt }}</div>
         </div>
         <div class="td-col" *ngIf="selectedRequest.rejectedFrom">
           <div class="td-label">Rejected from</div>
