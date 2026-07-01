@@ -30,7 +30,7 @@
               <span class="card-id">#{{ r.id }}</span>
             </div>
             <div class="card-title">
-              {{ r.title }}
+              {{ getRequestDisplayTitle(r) }}
             </div>
 
             <div class="card-meta">
@@ -86,7 +86,43 @@
 
         <!-- RIGHT: TITLE -->
         <div class="request-title">
-          {{ selectedRequest.title }}
+          {{ getModalRequestTitle(selectedRequest) }}
+        </div>
+      </div>
+
+      <div class="status-pill">
+        {{ formatStatusLabel(selectedRequest.status) }}
+      </div>
+
+      <div class="detail-grid">
+        <div class="detail-item">
+          <div class="detail-label">Requester</div>
+          <div class="detail-value">{{ selectedRequest.username || 'Unknown' }}</div>
+        </div>
+
+        <div class="detail-item">
+          <div class="detail-label">Requested item</div>
+          <div class="detail-value">{{ getRequestedItemLabel(selectedRequest) }}</div>
+        </div>
+
+        <div class="detail-item">
+          <div class="detail-label">Location</div>
+          <div class="detail-value">{{ getRequestLocationLabel(selectedRequest) }}</div>
+        </div>
+
+        <div class="detail-item">
+          <div class="detail-label">Assigned item</div>
+          <div class="detail-value">{{ getAssignedItemLabel(selectedRequest) }}</div>
+        </div>
+
+        <div class="detail-item">
+          <div class="detail-label">Created</div>
+          <div class="detail-value">{{ selectedRequest.date }} at {{ selectedRequest.time }}</div>
+        </div>
+
+        <div class="detail-item" *ngIf="selectedRequest.rejectedFrom">
+          <div class="detail-label">Rejected from</div>
+          <div class="detail-value">{{ selectedRequest.rejectedFrom === 'inprogress' ? 'In Progress' : 'New' }}</div>
         </div>
       </div>
 
@@ -100,6 +136,14 @@
 
       <div class="reason-box">
         {{ selectedRequest.reason || 'No reason provided' }}
+      </div>
+
+      <div class="reason-row" *ngIf="selectedRequest.status === 'rejected'">
+        <div class="reason-label">Rejection reason:</div>
+      </div>
+
+      <div class="reason-box rejection-box" *ngIf="selectedRequest.status === 'rejected'">
+        {{ selectedRequest.rejectedReason || 'No rejection reason provided' }}
       </div>
 
       <div class="item-type-row" *ngIf="isItemTypeSelectable(selectedRequest)">
@@ -136,26 +180,30 @@
         </div>
       </div>
 
-      <div class="status-timestamps" *ngIf="selectedRequest.inprogressAt || selectedRequest.completedAt || selectedRequest.rejectedAt || selectedRequest.pendingAt">
-        <div class="td-col" *ngIf="selectedRequest.inprogressAt">
-          <div class="td-label">In Progress at</div>
-          <div class="td-value">{{ selectedRequest.inprogressAt }}</div>
-        </div>
-        <div class="td-col" *ngIf="selectedRequest.completedAt">
-          <div class="td-label">Completed at</div>
-          <div class="td-value">{{ selectedRequest.completedAt }}</div>
-        </div>
-        <div class="td-col" *ngIf="selectedRequest.rejectedAt">
-          <div class="td-label">Rejected at</div>
-          <div class="td-value">{{ selectedRequest.rejectedAt }}</div>
-        </div>
-        <div class="td-col" *ngIf="selectedRequest.pendingAt">
-          <div class="td-label">Pending at</div>
-          <div class="td-value">{{ selectedRequest.pendingAt }}</div>
-        </div>
-        <div class="td-col" *ngIf="selectedRequest.rejectedFrom">
-          <div class="td-label">Rejected from</div>
-          <div class="td-value">{{ selectedRequest.rejectedFrom === 'inprogress' ? 'In Progress' : 'New' }}</div>
+      <div class="timeline-section" *ngIf="selectedRequest.inprogressAt || selectedRequest.completedAt || selectedRequest.rejectedAt || selectedRequest.pendingAt || selectedRequest.rejectedFrom">
+        <div class="detail-section-title">Transaction timeline</div>
+
+        <div class="status-timestamps">
+          <div class="td-col" *ngIf="selectedRequest.inprogressAt">
+            <div class="td-label">In Progress at</div>
+            <div class="td-value">{{ selectedRequest.inprogressAt }}</div>
+          </div>
+          <div class="td-col" *ngIf="selectedRequest.completedAt">
+            <div class="td-label">Completed at</div>
+            <div class="td-value">{{ selectedRequest.completedAt }}</div>
+          </div>
+          <div class="td-col" *ngIf="selectedRequest.rejectedAt">
+            <div class="td-label">Rejected at</div>
+            <div class="td-value">{{ selectedRequest.rejectedAt }}</div>
+          </div>
+          <div class="td-col" *ngIf="selectedRequest.pendingAt">
+            <div class="td-label">Pending at</div>
+            <div class="td-value">{{ selectedRequest.pendingAt }}</div>
+          </div>
+          <div class="td-col" *ngIf="selectedRequest.rejectedFrom">
+            <div class="td-label">Rejected from</div>
+            <div class="td-value">{{ selectedRequest.rejectedFrom === 'inprogress' ? 'In Progress' : 'New' }}</div>
+          </div>
         </div>
       </div>
 

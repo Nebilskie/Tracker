@@ -10,6 +10,7 @@ interface RequestItem {
   ownerInitials: string;
   username?: string;
   reason?: string;
+  rejectedReason?: string;
   status: 'new' | 'inprogress' | 'completed' | 'rejected' | 'pending';
   time: string;
   date: string;
@@ -20,6 +21,7 @@ interface RequestItem {
   rejectedFrom?: 'new' | 'inprogress' | null;
   inventory_item_id?: number | null;
   inventory_item_name?: string | null;
+  previous_inventory_item_name?: string | null;
   availableItemCount?: number | null;
 }
 
@@ -90,6 +92,7 @@ export class ItRequestPage implements OnInit {
               ownerInitials: this.getInitials(req.username),
               username: req.username,
               reason: req.reason || '',
+              rejectedReason: req.rejected_reason || (this.mapStatus(req.status) === 'rejected' ? (req.reason || '') : ''),
               status: this.mapStatus(req.status),
               time: new Date(req.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
               date: new Date(req.created_at).toLocaleDateString(),
@@ -100,6 +103,7 @@ export class ItRequestPage implements OnInit {
               rejectedFrom: req.rejected_from || null,
               inventory_item_id: req.inventory_item_id ?? null,
               inventory_item_name: req.inventory_item_name || null,
+              previous_inventory_item_name: req.previous_inventory_item_name || null,
               availableItemCount: null
             }));
             console.log('✅ Requests loaded:', this.requests.length);
@@ -138,6 +142,45 @@ export class ItRequestPage implements OnInit {
     if (!username) return 'UN';
     const parts = username.trim().split(' ').filter(Boolean);
     return parts.map(p => p[0]).join('').toUpperCase().substring(0, 2);
+  }
+
+  getRequestDisplayTitle(request: RequestItem | null): string {
+    if (!request) return '';
+    const completedText = this.getCompletedItemDescription(request);
+    return completedText || String(request.title || '');
+  }
+
+  getModalRequestTitle(request: RequestItem | null): string {
+    return this.getRequestDisplayTitle(request);
+  }
+
+  getRequestedItemLabel(request: RequestItem | null): string {
+    if (!request) return 'Unknown';
+
+    const itemName = this.extractRequestedItemName(request.title || '').trim();
+    if (!itemName) return 'Unknown';
+
+    return itemName.charAt(0).toUpperCase() + itemName.slice(1).toLowerCase();
+  }
+
+  getRequestLocationLabel(request: RequestItem | null): string {
+    if (!request) return 'Not specified';
+
+    const parts = this.extractLocationParts(request.title || '');
+    const locationSegments = [
+      parts.cubicle ? `Cubicle ${parts.cubicle}` : '',
+      parts.room ? `Room ${parts.room}` : '',
+      parts.building ? parts.building : ''
+    ].filter(Boolean);
+
+    return locationSegments.length ? locationSegments.join(' · ') : 'Not specified';
+  }
+
+  getAssignedItemLabel(request: RequestItem | null): string {
+    if (!request) return 'Not assigned yet';
+
+    const itemCode = String(request.inventory_item_name || request.previous_inventory_item_name || '').trim();
+    return itemCode || 'Not assigned yet';
   }
 
   /* =========================
@@ -300,6 +343,49 @@ export class ItRequestPage implements OnInit {
     return firstWord;
   }
 
+  getCompletedItemDescription(request: RequestItem | null): string {
+    if (!request || request.status !== 'completed') {
+      return '';
+    }
+
+    const itemTypeRaw = this.extractRequestedItemName(request.title || '').trim();
+    const itemType = itemTypeRaw
+      ? itemTypeRaw.charAt(0).toUpperCase() + itemTypeRaw.slice(1).toLowerCase()
+      : 'Item';
+
+    const itemCode = String(request.inventory_item_name || request.previous_inventory_item_name || '').trim();
+    if (!itemCode) {
+      return '';
+    }
+
+    const parsed = this.extractLocationParts(request.title || '');
+    const locationText = [
+      parsed.cubicle ? `for ${parsed.cubicle}` : '',
+      parsed.room ? `from ${parsed.room}` : '',
+      parsed.building ? `in ${parsed.building}` : ''
+    ]
+      .filter(Boolean)
+      .join(' ');
+
+    return locationText
+      ? `${itemType}: ${itemCode} ${locationText}`
+      : `${itemType}: ${itemCode}`;
+  }
+
+  private extractLocationParts(text: string): { cubicle: string; room: string; building: string } {
+    const value = String(text || '').trim();
+    const match = value.match(/for\s+Cubicle\s+(.+?)\s+in\s+Room\s+(.+?)(?:\s*\((.+?)\))?$/i);
+    if (!match) {
+      return { cubicle: '', room: '', building: '' };
+    }
+
+    return {
+      cubicle: String(match[1] || '').trim(),
+      room: String(match[2] || '').trim(),
+      building: String(match[3] || '').trim()
+    };
+  }
+
   /* =========================
      BUTTON VISIBILITY HELPERS
   ========================= */
@@ -347,11 +433,22 @@ export class ItRequestPage implements OnInit {
       await this.showAlert('Error', 'Request ID not found');
       return;
     }
-    await this.updateStatus(request.id, 'rejected', 'Request rejected');
+
+    const rejectionReason = await this.promptRejectionReason();
+    if (rejectionReason === null) {
+      return;
+    }
+
+    await this.updateStatus(request.id, 'rejected', 'Request rejected', rejectionReason);
   }
 
-  private async updateStatus(id: number, status: RequestItem['status'], successMsg: string) {
-    this.itRequestService.updateRequestStatus(id, status).subscribe(
+  private async updateStatus(
+    id: number,
+    status: RequestItem['status'],
+    successMsg: string,
+    rejectionReason: string = ''
+  ) {
+    this.itRequestService.updateRequestStatus(id, status, rejectionReason).subscribe(
       async (response: any) => {
         if (response?.success) {
           await this.showAlert('Success', successMsg);
@@ -364,9 +461,51 @@ export class ItRequestPage implements OnInit {
       },
       async (error) => {
         console.error('❌ HTTP Error updating request:', error);
-        await this.showAlert('Error', 'Failed to update request. Please try again.');
+        await this.showAlert('Error', error?.error?.error || 'Failed to update request. Please try again.');
       }
     );
+  }
+
+  private async promptRejectionReason(): Promise<string | null> {
+    let capturedReason: string | null = null;
+
+    const alert = await this.alertController.create({
+      header: 'Reject Request',
+      message: 'Please provide a reason for rejecting this request.',
+      inputs: [
+        {
+          name: 'rejectionReason',
+          type: 'textarea',
+          placeholder: 'Type rejection reason...'
+        }
+      ],
+      buttons: [
+        {
+          text: 'Cancel',
+          role: 'cancel'
+        },
+        {
+          text: 'Reject',
+          handler: (data) => {
+            const value = String(data?.rejectionReason || '').trim();
+            if (!value) {
+              this.showAlert('Required', 'Rejection reason is required.');
+              return false;
+            }
+            capturedReason = value;
+            return true;
+          }
+        }
+      ]
+    });
+
+    await alert.present();
+    const result = await alert.onDidDismiss();
+    if (result.role === 'cancel') {
+      return null;
+    }
+
+    return capturedReason;
   }
 
   /* =========================
@@ -434,6 +573,7 @@ export class ItRequestPage implements OnInit {
       case 'inprogress': return 'In Progress';
       case 'completed': return 'Completed';
       case 'rejected': return 'Rejected';
+      case 'pending': return 'Pending';
       default: return status;
     }
   }

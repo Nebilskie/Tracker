@@ -124,37 +124,6 @@
       </table>
     </div>
 
-    <div class="assignment-panel" *ngIf="selectedAssignmentUser">
-      <h3>Assign user: {{ selectedAssignmentUser['username'] || selectedAssignmentUser['id'] }}</h3>
-      <div class="assignment-row">
-        <label>
-          Building
-          <select [(ngModel)]="assignmentModel.building_id" (ngModelChange)="onBuildingChange()">
-            <option value="">Select building</option>
-            <option *ngFor="let building of buildings" [value]="building.id">{{ building.building_name }}</option>
-          </select>
-        </label>
-        <label>
-          Room
-          <select [(ngModel)]="assignmentModel.room_id" (ngModelChange)="onRoomChange()" [disabled]="!assignmentModel.building_id">
-            <option value="">Select room</option>
-            <option *ngFor="let room of rooms" [value]="room.id">{{ room.room_name }}</option>
-          </select>
-        </label>
-        <label>
-          Cubicle
-          <select [(ngModel)]="assignmentModel.cubicle_id" [disabled]="!assignmentModel.room_id">
-            <option value="">Select cubicle</option>
-            <option *ngFor="let cubicle of cubicles" [value]="cubicle.id">{{ cubicle.label }}</option>
-          </select>
-        </label>
-      </div>
-      <div class="assignment-actions">
-        <button class="tool-btn" type="button" (click)="saveAssignment()">Save Assignment</button>
-        <button class="tool-btn secondary" type="button" (click)="cancelAssignment()">Cancel</button>
-      </div>
-    </div>
-
     <div class="pagination-bar">
       <div class="page-size">
         <select [(ngModel)]="pageSize" (change)="currentPage = 1; paginate()">
@@ -184,6 +153,80 @@
       </div>
     </div>
   </div>
+
+  <ion-modal
+    [isOpen]="!!selectedAssignmentUser"
+    (didDismiss)="cancelAssignment()"
+    [canDismiss]="true"
+    cssClass="request-modal-container"
+  >
+    <ng-template>
+      <div class="assignment-modal-content">
+        <div class="modal-header">
+          <h2>Assign User</h2>
+          <button class="close-btn" type="button" (click)="cancelAssignment()">✕</button>
+        </div>
+
+        <div class="modal-body">
+          <h3>Assign user: {{ selectedAssignmentUser?.['username'] || selectedAssignmentUser?.['id'] }}</h3>
+
+          <div class="form-group">
+            <label>Building</label>
+            <ion-item class="select-item" lines="none">
+              <ion-select interface="popover" [(ngModel)]="assignmentModel.building_id" (ionChange)="onBuildingChange()">
+                <ion-select-option value="">Select building</ion-select-option>
+                <ion-select-option *ngFor="let building of buildings" [value]="building.id">
+                  {{ building.building_name }}
+                </ion-select-option>
+              </ion-select>
+            </ion-item>
+          </div>
+
+          <div class="form-group">
+            <label>Room</label>
+            <ion-item class="select-item" lines="none">
+              <ion-select
+                interface="popover"
+                [(ngModel)]="assignmentModel.room_id"
+                (ionChange)="onRoomChange()"
+                [disabled]="!assignmentModel.building_id"
+              >
+                <ion-select-option value="">Select room</ion-select-option>
+                <ion-select-option *ngFor="let room of rooms" [value]="room.id">
+                  {{ room.room_name }}
+                </ion-select-option>
+              </ion-select>
+            </ion-item>
+          </div>
+
+          <div class="form-group">
+            <label>Cubicle</label>
+            <ion-item class="select-item" lines="none">
+              <ion-select interface="popover" [(ngModel)]="assignmentModel.cubicle_id" [disabled]="!assignmentModel.room_id">
+                <ion-select-option value="">Select cubicle</ion-select-option>
+                <ion-select-option *ngFor="let cubicle of cubicles" [value]="cubicle.id">
+                  {{ cubicle.label }}
+                </ion-select-option>
+              </ion-select>
+            </ion-item>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button
+            *ngIf="hasLocationAssignment(selectedAssignmentUser)"
+            class="btn btn-danger"
+            type="button"
+            (click)="removeAssignment()"
+          >
+            Remove Location
+          </button>
+          <button class="btn btn-cancel" type="button" (click)="cancelAssignment()">Cancel</button>
+          <button class="btn btn-submit" type="button" (click)="saveAssignment()">Save Assignment</button>
+        </div>
+      </div>
+    </ng-template>
+  </ion-modal>
 
   <button class="fab-add-user" type="button" (click)="openAddUserModal()">+</button>
 </ion-content>

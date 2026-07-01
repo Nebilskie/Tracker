@@ -4,6 +4,15 @@ import { Router } from '@angular/router';
 import { ChartConfiguration } from 'chart.js';
 import { InventoryService } from '../services/inventory.service';
 
+interface UserData {
+  id?: number;
+  username?: string;
+  role?: string;
+  cubicle_label?: string;
+  building_name?: string;
+  room_name?: string;
+}
+
 @Component({
   selector: 'app-it-home',
   templateUrl: './it-home.page.html',
@@ -15,6 +24,8 @@ export class ItHomePage implements OnInit, OnDestroy {
   availableItems = 0;
   defectiveItems = 0;
   usedItems = 0;
+  myItemsCount = 0;
+  currentUser: UserData | null = null;
 
   inventoryItems: Array<{ name: string; available: number; defect: number; used: number; statusClass: string }> = [];
 
@@ -102,12 +113,15 @@ export class ItHomePage implements OnInit, OnDestroy {
   ) {}
 
   ngOnInit() {
+    this.loadCurrentUser();
     this.loadInventoryStats();
     this.loadActivitiesAndCounts();
+    this.loadMyItems();
 
     // Auto-refresh every 5 seconds
     this.refreshInterval = setInterval(() => {
       this.loadActivitiesAndCounts();
+      this.loadMyItems();
     }, 5000);
   }
 
@@ -289,5 +303,38 @@ export class ItHomePage implements OnInit, OnDestroy {
   navigateToRequests(status: string) {
     const normalized = status === 'in-progress' ? 'inprogress' : status;
     this.router.navigate(['/app/it-request'], { queryParams: { status: normalized } });
+  }
+
+  loadCurrentUser() {
+    const raw = localStorage.getItem('user');
+    if (!raw) return;
+
+    try {
+      const value = JSON.parse(raw);
+      this.currentUser = value;
+    } catch (error) {
+      console.error('Failed to parse current user data', error);
+    }
+  }
+
+  loadMyItems() {
+    if (!this.currentUser || !this.currentUser.cubicle_label) {
+      this.myItemsCount = 0;
+      return;
+    }
+
+    this.inventoryService.getItemsByCubicle(this.currentUser.cubicle_label).subscribe(
+      (response) => {
+        if (response.success && Array.isArray(response.items)) {
+          this.myItemsCount = response.items.length;
+        } else {
+          this.myItemsCount = 0;
+        }
+      },
+      (error) => {
+        console.error('Failed to load items for cubicle:', error);
+        this.myItemsCount = 0;
+      }
+    );
   }
 }

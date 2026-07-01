@@ -57,6 +57,19 @@ function normalizeRequestStatus(input) {
   return null;
 }
 
+async function hasColumn(conn, tableName, columnName) {
+  const [rows] = await conn.query(
+    `SELECT 1
+       FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = ?
+        AND COLUMN_NAME = ?
+      LIMIT 1`,
+    [tableName, columnName]
+  );
+  return Array.isArray(rows) && rows.length > 0;
+}
+
 /* =========================
    INIT TABLES
 ========================= */
@@ -71,6 +84,7 @@ async function initializeTables() {
         username VARCHAR(255) NOT NULL,
         request_text LONGTEXT NOT NULL,
         reason LONGTEXT,
+        rejected_reason LONGTEXT,
         status VARCHAR(1) NOT NULL DEFAULT 'N' COMMENT '''N''-New, ''I''-In-Progress, ''R''-Rejected, ''C''-Completed, ''P''-Pending',
         inventory_table VARCHAR(100) NULL DEFAULT NULL,
         inventory_item_id INT NULL DEFAULT NULL,
@@ -234,6 +248,15 @@ async function initializeTables() {
     if (!columnsPendingAt.length) {
       await conn.query(
         "ALTER TABLE requests ADD COLUMN pending_at DATETIME NULL DEFAULT NULL"
+      );
+    }
+
+    const [columnsRejectedReason] = await conn.query(
+      "SHOW COLUMNS FROM requests LIKE 'rejected_reason'"
+    );
+    if (!columnsRejectedReason.length) {
+      await conn.query(
+        "ALTER TABLE requests ADD COLUMN rejected_reason LONGTEXT NULL AFTER reason"
       );
     }
 
@@ -2817,6 +2840,7 @@ app.post('/api/users/import', async (req, res) => {
 app.post('/api/users/:id/assign-location', async (req, res) => {
   const userId = Number(req.params.id);
   const { building_id, room_id, cubicle_id, cubicle_label } = req.body || {};
+  const forceReassign = req.body?.force_reassign === true || req.body?.forceReassign === true;
 
   if (!Number.isFinite(userId) || userId <= 0) {
     return res.status(400).json({ success: false, error: 'Invalid user ID' });
@@ -2829,11 +2853,14 @@ app.post('/api/users/:id/assign-location', async (req, res) => {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
 
+    await conn.beginTransaction();
+
     let resolvedBuildingId = Number.isFinite(Number(building_id)) ? Number(building_id) : null;
     let resolvedRoomId = Number.isFinite(Number(room_id)) ? Number(room_id) : null;
     let resolvedCubicleId = Number.isFinite(Number(cubicle_id)) ? Number(cubicle_id) : null;
 
     if (cubicle_label && !resolvedRoomId) {
+      await conn.rollback();
       return res.status(400).json({ success: false, error: 'room_id is required when assigning a cubicle label' });
     }
 
@@ -2843,6 +2870,7 @@ app.post('/api/users/:id/assign-location', async (req, res) => {
         [resolvedRoomId, String(cubicle_label || '').trim()]
       );
       if (!cubRows.length) {
+        await conn.rollback();
         return res.status(404).json({ success: false, error: 'Cubicle not found for given room and label' });
       }
       resolvedCubicleId = cubRows[0].id;
@@ -2862,14 +2890,47 @@ app.post('/api/users/:id/assign-location', async (req, res) => {
       }
     }
 
+    if (resolvedCubicleId) {
+      const [occupiedRows] = await conn.query(
+        'SELECT id, username FROM mst_users WHERE cubicle_id = ? AND id != ? LIMIT 1',
+        [resolvedCubicleId, userId]
+      );
+
+      if (occupiedRows.length) {
+        const occupyingUser = occupiedRows[0];
+
+        if (!forceReassign) {
+          await conn.rollback();
+          return res.status(409).json({
+            success: false,
+            error: 'Cubicle is already assigned to another user',
+            code: 'CUBICLE_OCCUPIED',
+            conflictUser: {
+              id: Number(occupyingUser.id),
+              username: String(occupyingUser.username || '')
+            }
+          });
+        }
+
+        await conn.query(
+          'UPDATE mst_users SET building_id = NULL, room_id = NULL, cubicle_id = NULL WHERE id = ?',
+          [occupyingUser.id]
+        );
+      }
+    }
+
     await conn.query(
       'UPDATE mst_users SET building_id = ?, room_id = ?, cubicle_id = ? WHERE id = ?',
       [resolvedBuildingId, resolvedRoomId, resolvedCubicleId, userId]
     );
 
     const [updatedRows] = await conn.query('SELECT * FROM mst_users WHERE id = ? LIMIT 1', [userId]);
+    await conn.commit();
     res.json({ success: true, user: updatedRows[0] || null });
   } catch (e) {
+    try {
+      await conn.rollback();
+    } catch {}
     console.error('❌ /api/users/:id/assign-location error', e);
     res.status(500).json({ success: false, error: 'Server error' });
   } finally {
@@ -3038,8 +3099,11 @@ function statusCodeToLabel(code) {
 app.get('/api/it-requests', async (_req, res) => {
   const conn = await pool.getConnection();
   try {
+    const hasRejectedReason = await hasColumn(conn, 'requests', 'rejected_reason');
+    const rejectedReasonSelect = hasRejectedReason ? 'rejected_reason,' : '';
+
     const [rows] = await conn.query(
-      `SELECT id, user_id, username, request_text, reason, status,
+      `SELECT id, user_id, username, request_text, reason, ${rejectedReasonSelect} status,
               created_at, updated_at, inprogress_at, completed_at, rejected_at, pending_at, rejected_from,
               inventory_table, inventory_item_id, inventory_item_name, previous_inventory_item_name
          FROM requests
@@ -3052,6 +3116,7 @@ app.get('/api/it-requests', async (_req, res) => {
       username: r.username,
       request_text: r.request_text,
       reason: r.reason,
+      rejected_reason: hasRejectedReason ? r.rejected_reason : null,
       status: statusCodeToLabel(r.status),
       created_at: r.created_at,
       updated_at: r.updated_at,
@@ -3115,15 +3180,22 @@ app.post('/api/it-requests', async (req, res) => {
 app.put('/api/it-requests/:id', async (req, res) => {
   const requestId = Number(req.params.id);
   const normalizedStatus = normalizeRequestStatus(req.body?.status);
+  const rejectionReason = String(req.body?.rejectionReason || req.body?.rejected_reason || '').trim();
 
   if (!normalizedStatus) {
     return res.status(400).json({ success: false, error: 'Invalid status' });
+  }
+
+  if (normalizedStatus === 'R' && !rejectionReason) {
+    return res.status(400).json({ success: false, error: 'Rejection reason is required' });
   }
 
   const conn = await pool.getConnection();
 
   try {
     await conn.beginTransaction();
+
+    const hasRejectedReason = await hasColumn(conn, 'requests', 'rejected_reason');
 
     const [rows] = await conn.query(
       'SELECT status FROM requests WHERE id = ?',
@@ -3156,6 +3228,14 @@ app.put('/api/it-requests/:id', async (req, res) => {
       updateValues.push(now);
       updateFields.push('rejected_from = ?');
       updateValues.push(currentStatus === 'N' || currentStatus === 'I' ? currentStatus : null);
+      if (hasRejectedReason) {
+        updateFields.push('rejected_reason = ?');
+        updateValues.push(rejectionReason);
+      } else {
+        // Backward-compatible fallback for older schemas.
+        updateFields.push('reason = ?');
+        updateValues.push(rejectionReason);
+      }
     }
 
     if (normalizedStatus === 'P') {

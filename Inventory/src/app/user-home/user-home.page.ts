@@ -1,6 +1,7 @@
 import { Component, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
 import { ItRequestService } from '../services/it-request.service';
+import { InventoryService } from '../services/inventory.service';
 
 interface RequestItem {
   id?: number;
@@ -16,6 +17,9 @@ interface UserData {
   id?: number;
   username?: string;
   role?: string;
+  cubicle_label?: string;
+  building_name?: string;
+  room_name?: string;
 }
 
 @Component({
@@ -28,6 +32,7 @@ export class UserHomePage implements OnInit {
   currentDate = new Date();
   userName = 'User';
   currentUser: UserData | null = null;
+  myItemsCount = 0;
 
   requestCounts = {
     new: 0,
@@ -40,17 +45,20 @@ export class UserHomePage implements OnInit {
 
   constructor(
     private itRequestService: ItRequestService,
+    private inventoryService: InventoryService,
     private router: Router
   ) {}
 
   ngOnInit() {
     this.loadCurrentUser();
     this.loadRequests();
+    this.loadMyItems();
   }
 
   ionViewWillEnter() {
     this.loadCurrentUser();
     this.loadRequests();
+    this.loadMyItems();
   }
 
   loadCurrentUser() {
@@ -165,5 +173,26 @@ export class UserHomePage implements OnInit {
 
   viewAllRequests() {
     this.router.navigate(['/app/user-request']);
+  }
+
+  loadMyItems() {
+    if (!this.currentUser || !this.currentUser.cubicle_label) {
+      this.myItemsCount = 0;
+      return;
+    }
+
+    this.inventoryService.getItemsByCubicle(this.currentUser.cubicle_label).subscribe(
+      (response) => {
+        if (response.success && Array.isArray(response.items)) {
+          this.myItemsCount = response.items.length;
+        } else {
+          this.myItemsCount = 0;
+        }
+      },
+      (error) => {
+        console.error('Failed to load items for cubicle:', error);
+        this.myItemsCount = 0;
+      }
+    );
   }
 }

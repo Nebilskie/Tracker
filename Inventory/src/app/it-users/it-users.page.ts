@@ -281,12 +281,41 @@ export class ItUsersPage implements OnInit {
     this.selectedAssignmentUser = null;
   }
 
+  hasLocationAssignment(user: UserRecord | null): boolean {
+    if (!user) return false;
+    return user['building_id'] != null || user['room_id'] != null || user['cubicle_id'] != null;
+  }
+
   saveAssignment(): void {
     if (!this.selectedAssignmentUser) {
       return;
     }
 
-    const payload: any = {
+    this.submitAssignment(this.buildAssignmentPayload(), false);
+  }
+
+  removeAssignment(): void {
+    if (!this.selectedAssignmentUser) return;
+
+    const username = String(this.selectedAssignmentUser['username'] || this.selectedAssignmentUser['id']);
+    const shouldRemove = confirm(
+      `Remove all location assignment for ${username}? This will clear building, room, and cubicle.`
+    );
+    if (!shouldRemove) return;
+
+    this.submitAssignment({ building_id: null, room_id: null, cubicle_id: null }, false);
+  }
+
+  private buildAssignmentPayload(): {
+    building_id: number | null;
+    room_id: number | null;
+    cubicle_id?: number | null;
+  } {
+    const payload: {
+      building_id: number | null;
+      room_id: number | null;
+      cubicle_id?: number | null;
+    } = {
       building_id: this.parseNumberOrNull(this.assignmentModel.building_id),
       room_id: this.parseNumberOrNull(this.assignmentModel.room_id)
     };
@@ -295,30 +324,79 @@ export class ItUsersPage implements OnInit {
       payload.cubicle_id = this.parseNumberOrNull(this.assignmentModel.cubicle_id);
     }
 
-    this.userService.assignLocation(Number(this.selectedAssignmentUser['id']), payload).subscribe(
+    return payload;
+  }
+
+  private submitAssignment(
+    payload: { building_id: number | null; room_id: number | null; cubicle_id?: number | null },
+    forceReassign: boolean
+  ): void {
+    if (!this.selectedAssignmentUser) return;
+
+    const userId = Number(this.selectedAssignmentUser['id']);
+    const requestPayload = forceReassign ? { ...payload, force_reassign: true } : payload;
+
+    this.userService.assignLocation(userId, requestPayload).subscribe(
       (res) => {
         if (res?.success) {
-          this.showImportStatus = `Assigned ${this.selectedAssignmentUser?.['username'] ?? 'user'} to location.`;
-          // Update localStorage with the new user data that includes location
-          const currentUser = localStorage.getItem('user');
-          if (currentUser && this.selectedAssignmentUser) {
-            const userData = JSON.parse(currentUser);
-            if (userData.id === Number(this.selectedAssignmentUser['id'])) {
-              // If this is the currently logged-in user, update their local storage
-              localStorage.setItem('user', JSON.stringify({ ...userData, ...res.user }));
-            }
-          }
-          this.loadUsers();
-          this.selectedAssignmentUser = null;
+          this.handleAssignmentSuccess(res.user || null);
+          return;
+        }
+
+        if (res?.code === 'CUBICLE_OCCUPIED' && !forceReassign) {
+          this.promptForceReassign(payload, res?.conflictUser?.username || null);
         } else {
           alert(res?.error || 'Failed to assign location');
         }
       },
       (err) => {
+        if (err?.error?.code === 'CUBICLE_OCCUPIED' && !forceReassign) {
+          this.promptForceReassign(payload, err?.error?.conflictUser?.username || null);
+          return;
+        }
         console.error('Location assignment failed', err);
-        alert('Failed to assign location');
+        alert(err?.error?.error || 'Failed to assign location');
       }
     );
+  }
+
+  private promptForceReassign(
+    payload: { building_id: number | null; room_id: number | null; cubicle_id?: number | null },
+    occupantUsername: string | null
+  ): void {
+    const message = occupantUsername
+      ? `This cubicle is currently assigned to ${occupantUsername}. Do you want to reassign it and remove their location assignment?`
+      : 'This cubicle is currently assigned to another user. Do you want to reassign it and remove their location assignment?';
+
+    if (confirm(message)) {
+      this.submitAssignment(payload, true);
+    }
+  }
+
+  private handleAssignmentSuccess(updatedUser: UserRecord | null): void {
+    if (!this.selectedAssignmentUser) return;
+
+    const username = String(this.selectedAssignmentUser['username'] ?? 'user');
+    const isCleared =
+      updatedUser != null &&
+      updatedUser['building_id'] == null &&
+      updatedUser['room_id'] == null &&
+      updatedUser['cubicle_id'] == null;
+
+    this.showImportStatus = isCleared
+      ? `Removed location assignment for ${username}.`
+      : `Assigned ${username} to location.`;
+
+    const currentUser = localStorage.getItem('user');
+    if (currentUser && this.selectedAssignmentUser && updatedUser) {
+      const userData = JSON.parse(currentUser);
+      if (userData.id === Number(this.selectedAssignmentUser['id'])) {
+        localStorage.setItem('user', JSON.stringify({ ...userData, ...updatedUser }));
+      }
+    }
+
+    this.loadUsers();
+    this.selectedAssignmentUser = null;
   }
 
   private parseNumberOrNull(value: string): number | null {
@@ -385,7 +463,11 @@ export class ItUsersPage implements OnInit {
 
     this.floorplanApi.listRoomCubicles(id).subscribe(
       (res) => {
-        this.cubicles = res?.success && Array.isArray(res.cubicles) ? res.cubicles : [];
+        const allCubicles = res?.success && Array.isArray(res.cubicles) ? res.cubicles : [];
+        this.cubicles = allCubicles.filter((cubicle: any) => {
+          const assigned = cubicle?.assignedUser;
+          return assigned == null || String(assigned).trim() === '';
+        });
       },
       (err) => {
         console.error('Failed to load cubicles', err);

@@ -88,4 +88,25 @@ export class InventoryService {
   createItem(payload: any): Observable<{ success: boolean; id?: number; error?: string }> {
     return this.http.post<{ success: boolean; id?: number; error?: string }>(`${this.apiBase}/items`, payload);
   }
+
+  getItemsByCubicle(cubicleLabel: string): Observable<{ success: boolean; items: InventoryItem[] }> {
+    return new Observable(observer => {
+      this.getAllItems().subscribe(
+        (response) => {
+          if (response.success && Array.isArray(response.items)) {
+            const filteredItems = response.items.filter(
+              item => item.cubicle_label === cubicleLabel
+            );
+            observer.next({ success: true, items: filteredItems });
+          } else {
+            observer.next({ success: false, items: [] });
+          }
+          observer.complete();
+        },
+        (error) => {
+          observer.error(error);
+        }
+      );
+    });
+  }
 }

@@ -167,8 +167,9 @@
   inset: 0;
   background: rgba(0,0,0,0.45);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
+  padding: 96px 16px 24px;
   z-index: 1000;
 }
 
@@ -230,6 +231,59 @@
   color: #111827;
 }
 
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 12px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(95, 108, 255, 0.1);
+  color: #2b3cff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.detail-grid {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.detail-item {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #f8fbff;
+  border: 1px solid rgba(121, 201, 255, 0.35);
+}
+
+.detail-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.detail-value {
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+  word-break: break-word;
+}
+
+.detail-section-title {
+  width: 100%;
+  margin: 4px 0 0;
+  font-size: 12px;
+  font-weight: 800;
+  color: #334155;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
 /* REASON */
 .reason-row {
   display: flex;
@@ -239,7 +293,7 @@
   gap: 12px;
 }
 
-reason-label {
+.reason-label {
   font-size: 12px;
   font-weight: 700;
   color: #334155;
@@ -247,12 +301,21 @@ reason-label {
 
 .reason-box {
   margin-top: 6px;
-  min-height: 140px;
+  min-height: 0;
+  height: auto;
   border: 2px solid #79c9ff;
   border-radius: 8px;
   padding: 12px;
   font-size: 13px;
   background: #f8fbff;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.rejection-box {
+  min-height: 0;
+  border-color: #fca5a5;
+  background: #fff7f7;
 }
 
 .available-count {
@@ -311,8 +374,17 @@ reason-label {
   gap: 24px;
 }
 
+.status-timestamps {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-start;
+  align-items: flex-start;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
 .td-col {
-  text-align: center;
+  text-align: left;
 }
 
 .td-label {
@@ -324,6 +396,32 @@ reason-label {
 .td-value {
   font-size: 12px;
   color: #334155;
+}
+
+.timeline-section {
+  margin-top: 14px;
+}
+
+.timeline-section .detail-section-title {
+  margin-bottom: 8px;
+}
+
+@media (max-width: 640px) {
+  .header-row {
+    grid-template-columns: 1fr;
+  }
+
+  .request-title {
+    text-align: left;
+  }
+
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .status-timestamps {
+    justify-content: flex-start;
+  }
 }
 
 /* ACTION BUTTONS */

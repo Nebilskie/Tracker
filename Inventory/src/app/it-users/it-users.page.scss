@@ -350,6 +350,151 @@
   box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.06));
 }
 
+.assignment-modal-content {
+  min-width: min(520px, 92vw);
+  background: #fff;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.assignment-modal-content .modal-header {
+  padding: 24px 20px;
+  border-bottom: 1px solid #f0f0f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.assignment-modal-content .modal-header h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: #333;
+}
+
+.assignment-modal-content .close-btn {
+  background: none;
+  border: none;
+  font-size: 24px;
+  line-height: 1;
+  color: #999;
+  cursor: pointer;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.assignment-modal-content .close-btn:hover {
+  background: #f5f5f5;
+  color: #333;
+}
+
+.assignment-modal-content .modal-body {
+  padding: 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+}
+
+.assignment-modal-content .modal-body h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+}
+
+.assignment-modal-content .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.assignment-modal-content .form-group label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+}
+
+.assignment-modal-content .select-item {
+  --background: transparent;
+  --inner-border-width: 0px;
+  --highlight-height: 0px;
+  --highlight-color-focused: transparent;
+  --highlight-color-valid: transparent;
+  --highlight-color-invalid: transparent;
+  --ripple-color: transparent;
+  --min-height: 44px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+}
+
+.assignment-modal-content .select-item::part(native) {
+  background: transparent;
+}
+
+.assignment-modal-content .modal-footer {
+  padding: 16px 20px 20px;
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  border-top: 1px solid #f0f0f0;
+}
+
+.assignment-modal-content .btn {
+  padding: 10px 20px;
+  border-radius: 6px;
+  border: 1px solid #ddd;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.assignment-modal-content .btn:hover {
+  opacity: 0.9;
+}
+
+.assignment-modal-content .btn-cancel {
+  background: #fff;
+  color: #333;
+  border-color: #ddd;
+}
+
+.assignment-modal-content .btn-cancel:hover {
+  background: #f5f5f5;
+}
+
+.assignment-modal-content .btn-danger {
+  margin-right: auto;
+  background: #fff5f5;
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+
+.assignment-modal-content .btn-danger:hover {
+  background: #fee2e2;
+}
+
+.assignment-modal-content .btn-submit {
+  background: #5f6cff;
+  color: #fff;
+  border-color: #5f6cff;
+}
+
+.assignment-modal-content .btn-submit:hover {
+  background: #4d55dd;
+}
+
 .assignment-panel h3 {
   margin: 0;
   font-size: 16px;
@@ -381,6 +526,21 @@
 }
 
 .assignment-row input:focus {
+  border-color: var(--accent-primary, #667eea);
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.08);
+}
+
+.assignment-row select {
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  background: var(--bg-input, #f9fafb);
+  color: var(--text-primary, #333);
+  outline: none;
+}
+
+.assignment-row select:focus {
   border-color: var(--accent-primary, #667eea);
   box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.08);
 }

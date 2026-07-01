@@ -25,8 +25,9 @@ export class UserService {
     room_id?: number | null;
     cubicle_id?: number | null;
     cubicle_label?: string | null;
-  }): Observable<{ success: boolean; user?: UserRecord; error?: string }> {
-    return this.http.post<{ success: boolean; user?: UserRecord; error?: string }>(
+    force_reassign?: boolean;
+  }): Observable<{ success: boolean; user?: UserRecord; error?: string; code?: string; conflictUser?: { id: number; username: string } }> {
+    return this.http.post<{ success: boolean; user?: UserRecord; error?: string; code?: string; conflictUser?: { id: number; username: string } }>(
       `${this.apiBase}/users/${encodeURIComponent(String(userId))}/assign-location`,
       payload
     );

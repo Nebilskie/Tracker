@@ -73,9 +73,10 @@ export class ItRequestService {
    * @param requestId - The ID of the request to update
    * @param newStatus - The new status (new, inprogress, completed, rejected, pending)
    */
-  updateRequestStatus(requestId: number, newStatus: string): Observable<any> {
+  updateRequestStatus(requestId: number, newStatus: string, rejectionReason: string = ''): Observable<any> {
     return this.http.put<any>(`${this.apiUrl}/${requestId}`, { 
-      status: newStatus
+      status: newStatus,
+      rejectionReason
     }).pipe(
       tap((response) => {
         console.log('Request status updated:', response);
