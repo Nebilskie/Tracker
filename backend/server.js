@@ -964,6 +964,88 @@ function extractCubicleLabel(requestText) {
   return match2 ? match2[1] : null;
 }
 
+function extractRoomAndBuildingFromRequestText(requestText) {
+  const text = String(requestText || '').trim();
+  if (!text) {
+    return { roomName: null, buildingName: null };
+  }
+
+  const detailed = text.match(/in\s+Room\s+(.+?)(?:\s*\((.+?)\))?$/i);
+  if (detailed) {
+    return {
+      roomName: String(detailed[1] || '').trim() || null,
+      buildingName: String(detailed[2] || '').trim() || null,
+    };
+  }
+
+  const basic = text.match(/in\s+Room\s+(.+)$/i);
+  if (basic) {
+    return {
+      roomName: String(basic[1] || '').trim() || null,
+      buildingName: null,
+    };
+  }
+
+  return { roomName: null, buildingName: null };
+}
+
+async function resolveRequestCubicleTarget(conn, requestText) {
+  const cubicleLabel = extractCubicleLabel(requestText);
+  if (!cubicleLabel) {
+    return { cubicleLabel: null, cubicleId: null, roomId: null };
+  }
+
+  const { roomName, buildingName } = extractRoomAndBuildingFromRequestText(requestText);
+
+  const queryParts = [
+    `SELECT c.id AS cubicle_id, c.room_id
+     FROM mst_cubicles c
+     LEFT JOIN mst_room r ON r.id = c.room_id
+     LEFT JOIN mst_building b ON b.id = r.building_id
+     WHERE LOWER(TRIM(c.label)) = LOWER(TRIM(?))`
+  ];
+  const params = [cubicleLabel];
+
+  if (roomName) {
+    queryParts.push('AND LOWER(TRIM(r.room_name)) = LOWER(TRIM(?))');
+    params.push(roomName);
+  }
+
+  if (buildingName) {
+    queryParts.push('AND LOWER(TRIM(b.building_name)) = LOWER(TRIM(?))');
+    params.push(buildingName);
+  }
+
+  queryParts.push('ORDER BY c.id ASC LIMIT 1');
+
+  const [resolvedRows] = await conn.query(queryParts.join('\n'), params);
+  if (resolvedRows.length) {
+    return {
+      cubicleLabel,
+      cubicleId: resolvedRows[0].cubicle_id || null,
+      roomId: resolvedRows[0].room_id || null,
+    };
+  }
+
+  const [fallbackRows] = await conn.query(
+    `SELECT c.id AS cubicle_id, c.room_id
+     FROM mst_cubicles c
+     WHERE LOWER(TRIM(c.label)) = LOWER(TRIM(?))
+     ORDER BY c.id ASC`,
+    [cubicleLabel]
+  );
+
+  if (fallbackRows.length === 1) {
+    return {
+      cubicleLabel,
+      cubicleId: fallbackRows[0].cubicle_id || null,
+      roomId: fallbackRows[0].room_id || null,
+    };
+  }
+
+  return { cubicleLabel, cubicleId: null, roomId: null };
+}
+
 function replaceRequestedItemTypeInText(requestText, itemType) {
   const value = String(requestText || '').trim();
   const type = String(itemType || '').trim();
@@ -983,7 +1065,7 @@ async function setFloorplanInventoryValue(conn, roomId, label, itemType, itemCod
 
   // Find cubicle id for the label inside the target room
   const [cubRows] = await conn.query(
-    "SELECT id FROM mst_cubicles WHERE room_id = ? AND label = ? LIMIT 1",
+    "SELECT id FROM mst_cubicles WHERE room_id = ? AND LOWER(TRIM(label)) = LOWER(TRIM(?)) LIMIT 1",
     [roomId, label]
   );
   const cubicleId = cubRows?.[0]?.id || null;
@@ -1062,15 +1144,9 @@ async function reserveRequestedItem(conn, requestId, requestText) {
       ['mst_item', itemId, itemName, requestId]
     );
 
-    const cubicleLabel = extractCubicleLabel(requestText);
+    const { cubicleLabel, cubicleId, roomId } = await resolveRequestCubicleTarget(conn, requestText);
 
-    if (cubicleLabel && userId) {
-      const [cubRows] = await conn.query(
-        "SELECT id AS cubicle_id, room_id FROM mst_cubicles WHERE label = ? LIMIT 1",
-        [cubicleLabel]
-      );
-      const cubicleId = cubRows?.[0]?.cubicle_id || null;
-      const roomId = cubRows?.[0]?.room_id || null;
+    if (cubicleLabel && roomId) {
 
       if (roomId) {
         // previous item assigned to this cubicle for this type
@@ -1123,16 +1199,10 @@ async function releaseReservedItem(conn, requestId, requestText) {
     // keep rejected requests from leaving stale reservations on the floor plan
     await conn.query(`UPDATE mst_item SET status = 1, last_update = CURRENT_TIMESTAMP WHERE id = ?`, [itemId]);
 
-    const cubicleLabel = extractCubicleLabel(requestText);
+    const { cubicleLabel, roomId } = await resolveRequestCubicleTarget(conn, requestText);
     const itemType = row.item_type;
 
-    if (cubicleLabel && itemType && userId) {
-      const [cubRows] = await conn.query(
-        "SELECT id AS cubicle_id, room_id FROM mst_cubicles WHERE label = ? LIMIT 1",
-        [cubicleLabel]
-      );
-      const roomId = cubRows?.[0]?.room_id || null;
-
+    if (cubicleLabel && itemType && roomId) {
       if (roomId) {
         await setFloorplanInventoryValue(conn, roomId, cubicleLabel, itemType, null);
       }
@@ -1253,15 +1323,9 @@ async function markRequestedItemUsed(conn, requestId, requestText) {
       }
     }
 
-    const cubicleLabel = extractCubicleLabel(requestTextValue);
+    const { cubicleLabel, roomId } = await resolveRequestCubicleTarget(conn, requestTextValue);
 
-    if (cubicleLabel && itemType && userId) {
-      const [roomRows] = await conn.query(
-        "SELECT id AS cubicle_id, room_id FROM mst_cubicles WHERE label = ? LIMIT 1",
-        [cubicleLabel]
-      );
-      const roomId = roomRows?.[0]?.room_id || null;
-
+    if (cubicleLabel && itemType && roomId) {
       if (roomId) {
         await setFloorplanInventoryValue(conn, roomId, cubicleLabel, itemType, itemName);
         await updateItemLocation(conn, 'mst_item', itemName);
@@ -1432,13 +1496,13 @@ app.get('/api/inventory/:type', async (req, res) => {
               i.code,
               i.item_details,
               i.status,
-              bld.building_name AS building_name,
-              COALESCE(rm_item.room_name, rm_cub.room_name) AS room_name,
+              COALESCE(bld_cub.building_name, bld_item.building_name) AS building_name,
+              COALESCE(rm_cub.room_name, rm_item.room_name) AS room_name,
               c.label AS cubicle_label,
               CASE
                 WHEN c.id IS NOT NULL AND COALESCE(rm_cub.room_name,'') <> '' THEN CONCAT(c.label, ' Room ', COALESCE(rm_cub.room_name,''))
                 WHEN i.room_id IS NOT NULL AND COALESCE(rm_item.room_name,'') <> '' THEN CONCAT('Room ', COALESCE(rm_item.room_name,''))
-                WHEN bld.building_name IS NOT NULL THEN bld.building_name
+                WHEN COALESCE(bld_cub.building_name, bld_item.building_name) IS NOT NULL THEN COALESCE(bld_cub.building_name, bld_item.building_name)
                 ELSE ''
               END AS location,
               i.last_update,
@@ -1448,7 +1512,8 @@ app.get('/api/inventory/:type', async (req, res) => {
        LEFT JOIN mst_cubicles c ON c.id = i.cubicle_id
        LEFT JOIN mst_room rm_cub ON rm_cub.id = c.room_id
        LEFT JOIN mst_room rm_item ON rm_item.id = i.room_id
-       LEFT JOIN mst_building bld ON bld.id = i.building_id
+       LEFT JOIN mst_building bld_cub ON bld_cub.id = rm_cub.building_id
+       LEFT JOIN mst_building bld_item ON bld_item.id = i.building_id
       ${primaryReservationJoin}
        WHERE ${primaryWhere.join(' AND ')}
        ORDER BY i.code ASC`,
@@ -1485,10 +1550,13 @@ app.get('/api/inventory/:type', async (req, res) => {
                 i.code,
                 i.item_details,
                 i.status,
+                COALESCE(bld_cub.building_name, bld_item.building_name) AS building_name,
+                COALESCE(rm_cub.room_name, rm_item.room_name) AS room_name,
+                c.label AS cubicle_label,
                 CASE
                   WHEN c.id IS NOT NULL AND COALESCE(rm_cub.room_name,'') <> '' THEN CONCAT(c.label, ' Room ', COALESCE(rm_cub.room_name,''))
                   WHEN i.room_id IS NOT NULL AND COALESCE(rm_item.room_name,'') <> '' THEN CONCAT('Room ', COALESCE(rm_item.room_name,''))
-                  WHEN bld.building_name IS NOT NULL THEN bld.building_name
+                  WHEN COALESCE(bld_cub.building_name, bld_item.building_name) IS NOT NULL THEN COALESCE(bld_cub.building_name, bld_item.building_name)
                   ELSE ''
                 END AS location,
                 i.last_update,
@@ -1498,7 +1566,8 @@ app.get('/api/inventory/:type', async (req, res) => {
          LEFT JOIN mst_cubicles c ON c.id = i.cubicle_id
          LEFT JOIN mst_room rm_cub ON rm_cub.id = c.room_id
          LEFT JOIN mst_room rm_item ON rm_item.id = i.room_id
-         LEFT JOIN mst_building bld ON bld.id = i.building_id
+         LEFT JOIN mst_building bld_cub ON bld_cub.id = rm_cub.building_id
+         LEFT JOIN mst_building bld_item ON bld_item.id = i.building_id
          ${fallbackReservationJoin}
          WHERE ${fallbackWhere.join(' AND ')}
          ORDER BY i.code ASC`,
@@ -2498,10 +2567,13 @@ app.get('/api/items', async (_req, res) => {
   try {
     const [rows] = await conn.query(
       `SELECT i.id, i.item_type, i.code, i.item_details, i.status,
+              COALESCE(bld_cub.building_name, bld_item.building_name) AS building_name,
+              COALESCE(rm_cub.room_name, rm_item.room_name) AS room_name,
+              c.label AS cubicle_label,
               CASE
                 WHEN c.id IS NOT NULL AND COALESCE(rm_cub.room_name,'') <> '' THEN CONCAT(c.label, ' Room ', COALESCE(rm_cub.room_name,''))
                 WHEN i.room_id IS NOT NULL AND COALESCE(rm_item.room_name,'') <> '' THEN CONCAT('Room ', COALESCE(rm_item.room_name,''))
-                WHEN bld.building_name IS NOT NULL THEN bld.building_name
+                WHEN COALESCE(bld_cub.building_name, bld_item.building_name) IS NOT NULL THEN COALESCE(bld_cub.building_name, bld_item.building_name)
                 ELSE ''
                     END AS location,
                     i.last_update, b.brand_name AS manufacturer
@@ -2510,7 +2582,8 @@ app.get('/api/items', async (_req, res) => {
        LEFT JOIN mst_cubicles c ON c.id = i.cubicle_id
        LEFT JOIN mst_room rm_cub ON rm_cub.id = c.room_id
        LEFT JOIN mst_room rm_item ON rm_item.id = i.room_id
-       LEFT JOIN mst_building bld ON bld.id = i.building_id
+       LEFT JOIN mst_building bld_cub ON bld_cub.id = rm_cub.building_id
+       LEFT JOIN mst_building bld_item ON bld_item.id = i.building_id
        ORDER BY i.code ASC`
     );
     res.json({ success: true, items: rows });
@@ -3103,11 +3176,35 @@ app.get('/api/it-requests', async (_req, res) => {
     const rejectedReasonSelect = hasRejectedReason ? 'rejected_reason,' : '';
 
     const [rows] = await conn.query(
-      `SELECT id, user_id, username, request_text, reason, ${rejectedReasonSelect} status,
-              created_at, updated_at, inprogress_at, completed_at, rejected_at, pending_at, rejected_from,
-              inventory_table, inventory_item_id, inventory_item_name, previous_inventory_item_name
-         FROM requests
-        ORDER BY created_at DESC, id DESC`
+      `SELECT r.id,
+              r.user_id,
+              r.username,
+              r.request_text,
+              r.reason,
+              ${hasRejectedReason ? 'r.rejected_reason,' : ''}
+              r.status,
+              r.created_at,
+              r.updated_at,
+              r.inprogress_at,
+              r.completed_at,
+              r.rejected_at,
+              r.pending_at,
+              r.rejected_from,
+              r.inventory_table,
+              r.inventory_item_id,
+              r.inventory_item_name,
+              r.previous_inventory_item_name,
+              c.label AS assigned_cubicle_label,
+              COALESCE(rm_cub.room_name, rm_item.room_name) AS assigned_room_name,
+              COALESCE(bld_cub.building_name, bld_item.building_name) AS assigned_building_name
+         FROM requests r
+         LEFT JOIN mst_item i ON i.id = r.inventory_item_id
+         LEFT JOIN mst_cubicles c ON c.id = i.cubicle_id
+         LEFT JOIN mst_room rm_cub ON rm_cub.id = c.room_id
+         LEFT JOIN mst_room rm_item ON rm_item.id = i.room_id
+         LEFT JOIN mst_building bld_cub ON bld_cub.id = rm_cub.building_id
+         LEFT JOIN mst_building bld_item ON bld_item.id = i.building_id
+        ORDER BY r.created_at DESC, r.id DESC`
     );
 
     const requests = (rows || []).map((r) => ({
@@ -3129,6 +3226,9 @@ app.get('/api/it-requests', async (_req, res) => {
       inventory_item_id: r.inventory_item_id,
       inventory_item_name: r.inventory_item_name,
       previous_inventory_item_name: r.previous_inventory_item_name,
+      assigned_cubicle_label: r.assigned_cubicle_label,
+      assigned_room_name: r.assigned_room_name,
+      assigned_building_name: r.assigned_building_name,
     }));
 
     res.json({ success: true, requests });

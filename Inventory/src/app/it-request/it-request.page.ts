@@ -24,6 +24,9 @@ interface RequestItem {
   inventory_item_id?: number | null;
   inventory_item_name?: string | null;
   previous_inventory_item_name?: string | null;
+  assigned_cubicle_label?: string | null;
+  assigned_room_name?: string | null;
+  assigned_building_name?: string | null;
   availableItemCount?: number | null;
 }
 
@@ -115,6 +118,9 @@ export class ItRequestPage implements OnInit, OnDestroy {
               inventory_item_id: req.inventory_item_id ?? null,
               inventory_item_name: req.inventory_item_name || null,
               previous_inventory_item_name: req.previous_inventory_item_name || null,
+              assigned_cubicle_label: req.assigned_cubicle_label || null,
+              assigned_room_name: req.assigned_room_name || null,
+              assigned_building_name: req.assigned_building_name || null,
               availableItemCount: null
             }));
             console.log('✅ Requests loaded:', this.requests.length);
@@ -189,6 +195,11 @@ export class ItRequestPage implements OnInit, OnDestroy {
   getRequestLocationLabel(request: RequestItem | null): string {
     if (!request) return 'Not specified';
 
+    const actualLocation = this.getActualLocationLabel(request);
+    if (actualLocation) {
+      return actualLocation;
+    }
+
     const parts = this.extractLocationParts(request.title || '');
     const locationSegments = [
       parts.cubicle ? `Cubicle ${parts.cubicle}` : '',
@@ -197,6 +208,22 @@ export class ItRequestPage implements OnInit, OnDestroy {
     ].filter(Boolean);
 
     return locationSegments.length ? locationSegments.join(' · ') : 'Not specified';
+  }
+
+  private getActualLocationLabel(request: RequestItem | null): string {
+    if (!request) return '';
+
+    const cubicle = String(request.assigned_cubicle_label || '').trim();
+    const room = String(request.assigned_room_name || '').trim();
+    const building = String(request.assigned_building_name || '').trim();
+
+    const segments = [
+      cubicle ? `Cubicle ${cubicle}` : '',
+      room ? `Room ${room}` : '',
+      building || ''
+    ].filter(Boolean);
+
+    return segments.join(' · ');
   }
 
   getAssignedItemLabel(request: RequestItem | null): string {
@@ -379,6 +406,11 @@ export class ItRequestPage implements OnInit, OnDestroy {
     const itemCode = String(request.inventory_item_name || request.previous_inventory_item_name || '').trim();
     if (!itemCode) {
       return '';
+    }
+
+    const actualLocation = this.getActualLocationLabel(request);
+    if (actualLocation) {
+      return `${itemType}: ${itemCode} for ${actualLocation.replace(/ · /g, ' in ')}`;
     }
 
     const parsed = this.extractLocationParts(request.title || '');
