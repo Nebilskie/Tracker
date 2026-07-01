@@ -302,7 +302,19 @@ export class ItUsersPage implements OnInit, OnDestroy {
       return;
     }
 
+    if (!this.canSaveAssignment()) {
+      alert('Please select building, room, and cubicle before saving assignment.');
+      return;
+    }
+
     this.submitAssignment(this.buildAssignmentPayload(), false);
+  }
+
+  canSaveAssignment(): boolean {
+    return !!this.selectedAssignmentUser
+      && this.parseNumberOrNull(this.assignmentModel.building_id) != null
+      && this.parseNumberOrNull(this.assignmentModel.room_id) != null
+      && this.parseNumberOrNull(this.assignmentModel.cubicle_id) != null;
   }
 
   removeAssignment(): void {
@@ -331,7 +343,7 @@ export class ItUsersPage implements OnInit, OnDestroy {
       room_id: this.parseNumberOrNull(this.assignmentModel.room_id)
     };
 
-    if (this.assignmentModel.cubicle_id.trim()) {
+    if (String(this.assignmentModel.cubicle_id ?? '').trim()) {
       payload.cubicle_id = this.parseNumberOrNull(this.assignmentModel.cubicle_id);
     }
 
@@ -410,8 +422,10 @@ export class ItUsersPage implements OnInit, OnDestroy {
     this.selectedAssignmentUser = null;
   }
 
-  private parseNumberOrNull(value: string): number | null {
-    const num = Number(String(value).trim());
+  private parseNumberOrNull(value: string | number | null | undefined): number | null {
+    const raw = String(value ?? '').trim();
+    if (!raw) return null;
+    const num = Number(raw);
     return Number.isFinite(num) ? num : null;
   }
 

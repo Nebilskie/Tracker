@@ -84,10 +84,6 @@
       </div>
     </div>
 
-    <div class="import-status" *ngIf="showImportStatus">
-      {{ showImportStatus }}
-    </div>
-
     <div class="table-wrapper">
       <table class="users-table">
         <thead>
@@ -222,7 +218,7 @@
             Remove Location
           </button>
           <button class="btn btn-cancel" type="button" (click)="cancelAssignment()">Cancel</button>
-          <button class="btn btn-submit" type="button" (click)="saveAssignment()">Save Assignment</button>
+          <button class="btn btn-submit" type="button" (click)="saveAssignment()" [disabled]="!canSaveAssignment()">Save Assignment</button>
         </div>
       </div>
     </ng-template>
