@@ -1,7 +1,9 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
+import { Subscription } from 'rxjs';
 import { ItRequestService } from '../services/it-request.service';
 import { ModalController, AlertController } from '@ionic/angular';
 import { SubmitRequestModalComponent } from '../it-request/submit-request-modal/submit-request-modal.component';
+import { AutoRefreshService } from '../services/auto-refresh.service';
 
 interface RequestItem {
   id?: number;
@@ -31,7 +33,7 @@ interface UserData {
   styleUrls: ['./user-request.page.scss'],
   standalone: false
 })
-export class UserRequestPage implements OnInit {
+export class UserRequestPage implements OnInit, OnDestroy {
   columns: { label: string; status: RequestItem['status'] }[] = [
     { label: 'New', status: 'new' },
     { label: 'In-Progress', status: 'inprogress' },
@@ -45,16 +47,26 @@ export class UserRequestPage implements OnInit {
 
   selectedRequest: RequestItem | null = null;
   showDetailModal = false;
+  private refreshSubscription: Subscription | null = null;
 
   constructor(
     private itRequestService: ItRequestService,
     private modalController: ModalController,
-    private alertController: AlertController
+    private alertController: AlertController,
+    private autoRefreshService: AutoRefreshService
   ) {}
 
   ngOnInit() {
     this.loadCurrentUser();
-    this.loadRequests();
+    this.refreshSubscription = this.autoRefreshService.watch(async () => {
+      this.loadCurrentUser();
+      await this.loadRequests();
+    });
+  }
+
+  ngOnDestroy() {
+    this.refreshSubscription?.unsubscribe();
+    this.refreshSubscription = null;
   }
 
   loadCurrentUser() {
@@ -112,6 +124,13 @@ export class UserRequestPage implements OnInit {
               }));
 
             console.log('My requests loaded:', this.requests.length);
+
+            if (this.selectedRequest?.id) {
+              this.selectedRequest = this.requests.find((item) => item.id === this.selectedRequest?.id) || null;
+              if (!this.selectedRequest) {
+                this.closeDetailModal();
+              }
+            }
           }
           resolve();
         },

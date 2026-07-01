@@ -1,8 +1,10 @@
 import { HttpClient } from '@angular/common/http';
 import { Component, OnInit, OnDestroy } from '@angular/core';
 import { Router } from '@angular/router';
+import { Subscription } from 'rxjs';
 import { ChartConfiguration } from 'chart.js';
 import { InventoryService } from '../services/inventory.service';
+import { AutoRefreshService } from '../services/auto-refresh.service';
 
 interface UserData {
   id?: number;
@@ -37,7 +39,7 @@ export class ItHomePage implements OnInit, OnDestroy {
     completed: 0
   };
 
-  private refreshInterval: any;
+  private refreshSubscription: Subscription | null = null;
 
   barChartData: ChartConfiguration<'bar'>['data'] = {
     labels: ['Monitor', 'Keyboard', 'Headset', 'Webcam', 'Mouse', 'WiFi'],
@@ -109,26 +111,22 @@ export class ItHomePage implements OnInit, OnDestroy {
   constructor(
     private http: HttpClient,
     private router: Router,
-    private inventoryService: InventoryService
+    private inventoryService: InventoryService,
+    private autoRefreshService: AutoRefreshService
   ) {}
 
   ngOnInit() {
     this.loadCurrentUser();
-    this.loadInventoryStats();
-    this.loadActivitiesAndCounts();
-    this.loadMyItems();
-
-    // Auto-refresh every 5 seconds
-    this.refreshInterval = setInterval(() => {
+    this.refreshSubscription = this.autoRefreshService.watch(() => {
+      this.loadInventoryStats();
       this.loadActivitiesAndCounts();
       this.loadMyItems();
-    }, 5000);
+    });
   }
 
   ngOnDestroy() {
-    if (this.refreshInterval) {
-      clearInterval(this.refreshInterval);
-    }
+    this.refreshSubscription?.unsubscribe();
+    this.refreshSubscription = null;
   }
 
   loadInventoryStats() {

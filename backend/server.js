@@ -1845,7 +1845,7 @@ app.get("/floorplan-inventory", async (req,res)=>{
          COUNT(*) AS count
        FROM mst_item i
        INNER JOIN mst_cubicles c ON c.id = i.cubicle_id
-       WHERE i.room_id = ? AND i.cubicle_id IS NOT NULL
+       WHERE c.room_id = ? AND i.cubicle_id IS NOT NULL
        GROUP BY c.label, i.item_type
        ORDER BY c.label ASC, i.item_type ASC`,
       [roomId]
@@ -1885,7 +1885,7 @@ app.get("/floorplan-inventory", async (req,res)=>{
               i.code
        FROM mst_item i
        INNER JOIN mst_cubicles c ON c.id = i.cubicle_id
-       WHERE i.room_id = ? AND i.cubicle_id IS NOT NULL
+       WHERE c.room_id = ? AND i.cubicle_id IS NOT NULL
        ORDER BY c.label ASC, i.item_type ASC, i.code ASC`,
       [roomId]
     );

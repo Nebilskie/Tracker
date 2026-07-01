@@ -1,8 +1,10 @@
-import { Component, HostListener, OnInit } from '@angular/core';
+import { Component, HostListener, OnDestroy, OnInit } from '@angular/core';
+import { Subscription } from 'rxjs';
 import { ModalController } from '@ionic/angular';
 import { UserService, UserRecord } from '../services/user.service';
 import { FloorplanApiService } from '../services/floorplan-api';
 import { AddUserModalComponent } from './add-user-modal.component';
+import { AutoRefreshService } from '../services/auto-refresh.service';
 
 export interface ColumnDef {
   key: string;
@@ -15,7 +17,7 @@ export interface ColumnDef {
   styleUrls: ['./it-users.page.scss'],
   standalone: false
 })
-export class ItUsersPage implements OnInit {
+export class ItUsersPage implements OnInit, OnDestroy {
   columns: ColumnDef[] = [];
   users: UserRecord[] = [];
   filteredUsers: UserRecord[] = [];
@@ -44,11 +46,13 @@ export class ItUsersPage implements OnInit {
     room_id: '',
     cubicle_id: ''
   };
+  private refreshSubscription: Subscription | null = null;
 
   constructor(
     private userService: UserService,
     private floorplanApi: FloorplanApiService,
-    private modalController: ModalController
+    private modalController: ModalController,
+    private autoRefreshService: AutoRefreshService
   ) {}
 
   @HostListener('document:click', ['$event'])
@@ -60,8 +64,15 @@ export class ItUsersPage implements OnInit {
   }
 
   ngOnInit() {
-    this.loadUsers();
-    this.loadBuildings();
+    this.refreshSubscription = this.autoRefreshService.watch(async () => {
+      this.loadUsers();
+      await this.loadBuildings();
+    });
+  }
+
+  ngOnDestroy() {
+    this.refreshSubscription?.unsubscribe();
+    this.refreshSubscription = null;
   }
 
   async openAddUserModal(): Promise<void> {

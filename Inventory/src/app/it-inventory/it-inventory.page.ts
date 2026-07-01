@@ -1,7 +1,9 @@
-import { Component, HostListener, OnInit, ViewChild, ElementRef } from '@angular/core';
+import { Component, HostListener, OnDestroy, OnInit, ViewChild, ElementRef } from '@angular/core';
+import { Subscription } from 'rxjs';
 import { InventoryService, InventoryItem, InventorySummaryItem } from '../services/inventory.service';
 import { ItRequestService } from '../services/it-request.service';
 import { FloorplanApiService } from '../services/floorplan-api';
+import { AutoRefreshService } from '../services/auto-refresh.service';
 
 export interface ColumnDef {
   key: string;
@@ -49,7 +51,7 @@ export interface Cubicle {
   styleUrls: ['./it-inventory.page.scss'],
   standalone: false
 })
-export class ItInventoryPage implements OnInit {
+export class ItInventoryPage implements OnInit, OnDestroy {
   assetType = '';
   assetTypes: string[] = [];
   assetTitle = 'All Inventory';
@@ -88,6 +90,7 @@ export class ItInventoryPage implements OnInit {
   ];
 
   @ViewChild('itemTypeInput') itemTypeInput?: ElementRef;
+  private refreshSubscription: Subscription | null = null;
 
   private initNewItem(): NewInventoryItem {
     return {
@@ -105,7 +108,8 @@ export class ItInventoryPage implements OnInit {
   constructor(
     private inventoryService: InventoryService,
     private itRequestService: ItRequestService,
-    private floorplanApi: FloorplanApiService
+    private floorplanApi: FloorplanApiService,
+    private autoRefreshService: AutoRefreshService
   ) {}
 
   @HostListener('document:click', ['$event'])
@@ -153,9 +157,15 @@ export class ItInventoryPage implements OnInit {
     // Load brands and buildings for the add modal
     this.loadBrands();
     this.loadBuildings();
+    this.refreshSubscription = this.autoRefreshService.watch(() => {
+      this.loadAssetData();
+      this.loadBuildings();
+    });
+  }
 
-    // Load summary view by default
-    this.loadAssetData();
+  ngOnDestroy() {
+    this.refreshSubscription?.unsubscribe();
+    this.refreshSubscription = null;
   }
 
   displayLabel(type: string) {

@@ -1,8 +1,10 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
+import { Subscription } from 'rxjs';
 import { ItRequestService } from '../services/it-request.service';
 import { InventoryService, InventorySummaryItem, InventoryItem } from '../services/inventory.service';
 import { ModalController, AlertController } from '@ionic/angular';
 import { SubmitRequestModalComponent } from './submit-request-modal/submit-request-modal.component';
+import { AutoRefreshService } from '../services/auto-refresh.service';
 
 interface RequestItem {
   id?: number;
@@ -37,7 +39,7 @@ interface UserData {
   styleUrls: ['./it-request.page.scss'],
   standalone: false
 })
-export class ItRequestPage implements OnInit {
+export class ItRequestPage implements OnInit, OnDestroy {
 
   columns: { label: string; status: RequestItem['status'] }[] = [
     { label: 'New', status: 'new' },
@@ -55,18 +57,27 @@ export class ItRequestPage implements OnInit {
   showDetailModal = false;
   currentUser: UserData | null = null;
   inventorySummary: InventorySummaryItem[] = [];
+  private refreshSubscription: Subscription | null = null;
 
   constructor(
     private itRequestService: ItRequestService,
     private inventoryService: InventoryService,
     private modalController: ModalController,
-    private alertController: AlertController
+    private alertController: AlertController,
+    private autoRefreshService: AutoRefreshService
   ) {}
 
   ngOnInit() {
     this.loadCurrentUser();
-    this.loadInventorySummary();
-    this.loadRequests();
+    this.refreshSubscription = this.autoRefreshService.watch(async () => {
+      await this.loadInventorySummary();
+      await this.loadRequests();
+    });
+  }
+
+  ngOnDestroy() {
+    this.refreshSubscription?.unsubscribe();
+    this.refreshSubscription = null;
   }
 
   loadCurrentUser() {
@@ -107,6 +118,18 @@ export class ItRequestPage implements OnInit {
               availableItemCount: null
             }));
             console.log('✅ Requests loaded:', this.requests.length);
+
+            if (this.selectedRequest?.id) {
+              const refreshedRequest = this.requests.find((item) => item.id === this.selectedRequest?.id) || null;
+              this.selectedRequest = refreshedRequest;
+              if (refreshedRequest) {
+                this.selectedRequestItemCode = String(refreshedRequest.inventory_item_name || '').trim();
+                this.loadAvailableItemCount(refreshedRequest);
+                this.loadAvailableRequestItems(refreshedRequest);
+              } else {
+                this.closeDetailModal();
+              }
+            }
           }
           resolve();
         },

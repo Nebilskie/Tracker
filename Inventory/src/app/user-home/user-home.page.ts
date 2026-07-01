@@ -1,7 +1,9 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
+import { Subscription } from 'rxjs';
 import { ItRequestService } from '../services/it-request.service';
 import { InventoryService } from '../services/inventory.service';
+import { AutoRefreshService } from '../services/auto-refresh.service';
 
 interface RequestItem {
   id?: number;
@@ -42,23 +44,37 @@ export class UserHomePage implements OnInit {
   };
 
   recentRequests: RequestItem[] = [];
+  private refreshSubscription: Subscription | null = null;
 
   constructor(
     private itRequestService: ItRequestService,
     private inventoryService: InventoryService,
-    private router: Router
+    private router: Router,
+    private autoRefreshService: AutoRefreshService
   ) {}
 
   ngOnInit() {
-    this.loadCurrentUser();
-    this.loadRequests();
-    this.loadMyItems();
+    this.startAutoRefresh();
   }
 
   ionViewWillEnter() {
-    this.loadCurrentUser();
-    this.loadRequests();
-    this.loadMyItems();
+    if (!this.refreshSubscription || this.refreshSubscription.closed) {
+      this.startAutoRefresh();
+    }
+  }
+
+  ngOnDestroy() {
+    this.refreshSubscription?.unsubscribe();
+    this.refreshSubscription = null;
+  }
+
+  private startAutoRefresh() {
+    this.refreshSubscription?.unsubscribe();
+    this.refreshSubscription = this.autoRefreshService.watch(() => {
+      this.loadCurrentUser();
+      this.loadRequests();
+      this.loadMyItems();
+    });
   }
 
   loadCurrentUser() {
