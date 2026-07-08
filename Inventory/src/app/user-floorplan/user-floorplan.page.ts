@@ -76,6 +76,7 @@ export class UserFloorplanPage implements OnInit {
   readonly INVENTORY_REFRESH_INTERVAL = 5000;
   hoveredBuildingId: number | null = null;
   buildingRoomsLoadingId: number | null = null;
+  loadingBuildingRoomIds = new Set<number>();
   buildingHoverStyle: Record<string, string> = {};
   buildingRoomsCache = new Map<number, BuildingRoom[]>();
   hoveredRoomId: number | null = null;
@@ -353,6 +354,14 @@ export class UserFloorplanPage implements OnInit {
     return this.buildingRoomsCache.get(buildingId) ?? [];
   }
 
+  hasBuildingRoomsLoaded(buildingId: number): boolean {
+    return this.buildingRoomsCache.has(buildingId);
+  }
+
+  isBuildingRoomsLoading(buildingId: number): boolean {
+    return this.loadingBuildingRoomIds.has(buildingId);
+  }
+
   onBuildingMouseEnter(b: MstBuilding, ev?: MouseEvent) {
     this.hoveredBuildingId = b.id;
     void this.ensureBuildingRooms(b.id);
@@ -460,9 +469,10 @@ export class UserFloorplanPage implements OnInit {
   private async ensureBuildingRooms(buildingId: number) {
     if (!buildingId) return;
     if (this.buildingRoomsCache.has(buildingId)) return;
-    if (this.buildingRoomsLoadingId === buildingId) return;
+    if (this.loadingBuildingRoomIds.has(buildingId)) return;
 
     this.buildingRoomsLoadingId = buildingId;
+    this.loadingBuildingRoomIds.add(buildingId);
     try {
       const res: any = await firstValueFrom(
         this.floorplanApi.listBuildingRooms(buildingId)
@@ -485,6 +495,7 @@ export class UserFloorplanPage implements OnInit {
       console.warn('Building rooms load failed', buildingId, e);
       this.buildingRoomsCache.set(buildingId, []);
     } finally {
+      this.loadingBuildingRoomIds.delete(buildingId);
       if (this.buildingRoomsLoadingId === buildingId) {
         this.buildingRoomsLoadingId = null;
       }
@@ -516,11 +527,17 @@ export class UserFloorplanPage implements OnInit {
         next: (res: any) => {
           if (res?.success && Array.isArray(res.buildings)) {
             this.buildings = res.buildings;
-            if (this.buildings.length > 0) {
-              const firstBuilding = this.buildings[0];
-              this.activeBuildingId = firstBuilding.id;
-              this.loadRoomsForBuilding(firstBuilding.id);
-            } else {
+            for (const building of this.buildings) {
+              void this.ensureBuildingRooms(building.id);
+            }
+            this.activeBuildingId = null;
+            this.rooms = [];
+            this.roomId = null;
+            this.activeRoomId = null;
+            this.showFloorCanvas = false;
+            this.floorItems = [];
+            this.cubicleInventory = {};
+            if (this.buildings.length === 0) {
               this.buildings = [];
               this.rooms = [];
               this.floorItems = [];

@@ -1,32 +1,69 @@
 <ion-content>
   <div class="request-container">
+    <!-- Page Header -->
+    <div class="page-header">
+      <div class="header-content">
+        <h1 class="page-title">My Requests</h1>
+        <p class="page-subtitle">Manage and track all your requests</p>
+      </div>
+      <div class="header-stats" *ngIf="currentUser">
+        <div class="stat-item">
+          <span class="stat-label">Total</span>
+          <span class="stat-value">{{ requests.length }}</span>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat-item">
+          <span class="stat-label">In Progress</span>
+          <span class="stat-value">{{ (itemsByStatus('inprogress')).length }}</span>
+        </div>
+      </div>
+    </div>
 
     <div class="requests-board" *ngIf="currentUser">
-      <div class="board-column" *ngFor="let col of columns">
-
+      <div class="board-column" *ngFor="let col of columns" [attr.data-status]="col.status">
+        
+        <!-- Column Header with Icon -->
         <div class="column-header">
-          <div class="title">{{ col.label }}</div>
+          <div class="header-title-block">
+            <div class="status-icon" [class]="'icon-' + col.status">
+              <ion-icon [name]="getStatusIcon(col.status)"></ion-icon>
+            </div>
+            <div>
+              <div class="column-title">{{ col.label }}</div>
+              <div class="column-count">{{ (itemsByStatus(col.status)).length }} item<span *ngIf="(itemsByStatus(col.status)).length !== 1">s</span></div>
+            </div>
+          </div>
 
           <ion-button
             *ngIf="col.status === 'new'"
             fill="clear"
             class="add-btn"
             (click)="addRequest()"
+            title="Add new request"
           >
             <ion-icon name="add"></ion-icon>
           </ion-button>
         </div>
 
+        <!-- Cards Container -->
         <div class="cards">
           <div
             class="request-card"
             *ngFor="let r of itemsByStatus(col.status)"
             (click)="openRequestDetail(r)"
+            [class]="'status-' + r.status"
           >
+            <!-- Status Badge -->
+            <div class="status-badge" [class]="'badge-' + r.status">
+              {{ formatStatusLabel(r.status) }}
+            </div>
+
+            <!-- Card Content -->
             <div class="card-title">
               {{ r.title }}
             </div>
 
+            <!-- Card Meta -->
             <div class="card-meta">
               <div class="avatar">
                 {{ r.ownerInitials }}
@@ -37,13 +74,20 @@
                 <div class="date">{{ r.date }}</div>
               </div>
             </div>
+
+            <!-- Hover Indicator -->
+            <div class="card-hover-indicator">
+              <ion-icon name="arrow-forward"></ion-icon>
+            </div>
           </div>
 
+          <!-- Empty State -->
           <div
             *ngIf="itemsByStatus(col.status).length === 0"
             class="empty-state"
           >
-            No requests
+            <ion-icon name="inbox-outline"></ion-icon>
+            <div class="empty-text">No {{ col.label | lowercase }} requests</div>
           </div>
         </div>
 

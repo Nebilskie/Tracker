@@ -3,7 +3,7 @@ import { Component, OnInit, OnDestroy } from '@angular/core';
 import { Router } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { ChartConfiguration } from 'chart.js';
-import { InventoryService } from '../services/inventory.service';
+import { InventoryItem, InventoryService } from '../services/inventory.service';
 import { AutoRefreshService } from '../services/auto-refresh.service';
 
 interface UserData {
@@ -26,7 +26,8 @@ export class ItHomePage implements OnInit, OnDestroy {
   availableItems = 0;
   defectiveItems = 0;
   usedItems = 0;
-  myItemsCount = 0;
+  currentlyUsingCount = 0;
+  currentlyUsingItems: InventoryItem[] = [];
   currentUser: UserData | null = null;
 
   inventoryItems: Array<{ name: string; available: number; defect: number; used: number; statusClass: string }> = [];
@@ -317,22 +318,59 @@ export class ItHomePage implements OnInit, OnDestroy {
 
   loadMyItems() {
     if (!this.currentUser || !this.currentUser.cubicle_label) {
-      this.myItemsCount = 0;
+      this.currentlyUsingCount = 0;
+      this.currentlyUsingItems = [];
       return;
     }
 
     this.inventoryService.getItemsByCubicle(this.currentUser.cubicle_label).subscribe(
       (response) => {
         if (response.success && Array.isArray(response.items)) {
-          this.myItemsCount = response.items.length;
+          const usingItems = response.items.filter((item: InventoryItem) => this.isCurrentlyUsing(item.status));
+          this.currentlyUsingCount = usingItems.length;
+          this.currentlyUsingItems = usingItems;
         } else {
-          this.myItemsCount = 0;
+          this.currentlyUsingCount = 0;
+          this.currentlyUsingItems = [];
         }
       },
       (error) => {
         console.error('Failed to load items for cubicle:', error);
-        this.myItemsCount = 0;
+        this.currentlyUsingCount = 0;
+        this.currentlyUsingItems = [];
       }
     );
+  }
+
+  private isCurrentlyUsing(status: unknown): boolean {
+    const normalized = String(status ?? '').trim().toLowerCase();
+    return normalized === '2' || normalized === 'used';
+  }
+
+  private getItemTypeDisplay(item: InventoryItem): string {
+    return String(item.item_type || item.name || item.type || 'item').trim().toLowerCase();
+  }
+
+  private getItemNameDisplay(item: InventoryItem): string {
+    return String(item.code || item.name || item.item_details || '-').trim();
+  }
+
+  get currentlyUsingItemBreakdown(): Array<{ itemType: string; itemName: string; count: number }> {
+    const grouped = this.currentlyUsingItems.reduce((map, item) => {
+      const itemType = this.getItemTypeDisplay(item);
+      const itemName = this.getItemNameDisplay(item);
+      const key = `${itemType}||${itemName}`;
+
+      if (!itemType) {
+        return map;
+      }
+
+      const existing = map.get(key) || { itemType, itemName, count: 0 };
+      existing.count += 1;
+      map.set(key, existing);
+      return map;
+    }, new Map<string, { itemType: string; itemName: string; count: number }>());
+
+    return Array.from(grouped.values());
   }
 }

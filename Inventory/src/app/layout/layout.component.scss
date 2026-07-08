@@ -60,10 +60,20 @@ ion-header {
 .sidebar-nav {
   display: flex;
   flex-direction: column;
-  gap: 15px;
+  gap: 0;
   list-style: none;
   padding: 0;
   margin: 0;
+}
+
+.nav-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #d1d5db, transparent);
+  margin: 8px 0;
+}
+
+:host-context(.dark-theme) .nav-divider {
+  background: linear-gradient(90deg, transparent, #4b5563, transparent);
 }
 
 .nav-btn {
@@ -82,6 +92,7 @@ ion-header {
   width: 100%;
   text-align: left;
   pointer-events: auto;
+  margin: 6px 0;
 }
 
 .nav-btn:hover {

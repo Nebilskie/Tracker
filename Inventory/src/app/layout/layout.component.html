@@ -71,21 +71,25 @@
           <ion-icon name="home-outline"></ion-icon>
           <span>Home</span>
         </button>
+        <div class="nav-divider"></div>
 
         <button *ngIf="!isUser" class="nav-btn" (click)="navigate('/app/it-inventory')" routerLink="/app/it-inventory" routerLinkActive="active">
           <ion-icon name="layers-outline"></ion-icon>
           <span>Inventory</span>
         </button>
+        <div *ngIf="!isUser" class="nav-divider"></div>
 
         <button *ngIf="!isUser" class="nav-btn" (click)="navigate(itUsersRoute)" [routerLink]="itUsersRoute" routerLinkActive="active">
           <ion-icon name="people-outline"></ion-icon>
           <span>Users</span>
         </button>
+        <div *ngIf="!isUser" class="nav-divider"></div>
 
         <button class="nav-btn" (click)="navigate(floorplanRoute)" [routerLink]="floorplanRoute" routerLinkActive="active">
           <ion-icon name="grid-outline"></ion-icon>
           <span>Floor Plan</span>
         </button>
+        <div class="nav-divider"></div>
         <button class="nav-btn" (click)="navigate(requestRoute)" [routerLink]="requestRoute" routerLinkActive="active">
           <ion-icon name="add-circle-outline"></ion-icon>
           <span>Request</span>

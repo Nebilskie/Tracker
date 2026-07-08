@@ -77,10 +77,10 @@
                 </div>
               </div>
 
-              <div class="building-card-meta" *ngIf="buildingRoomsLoadingId === b.id">
+              <div class="building-card-meta" *ngIf="isBuildingRoomsLoading(b.id)">
                 Loading rooms…
               </div>
-              <div class="building-card-meta" *ngIf="buildingRoomsLoadingId !== b.id && getBuildingRooms(b.id).length === 0">
+              <div class="building-card-meta" *ngIf="hasBuildingRoomsLoaded(b.id) && !isBuildingRoomsLoading(b.id) && getBuildingRooms(b.id).length === 0">
                 No&nbsp;rooms&nbsp;yet
               </div>
             </div>
@@ -98,11 +98,11 @@
           >
             <div class="building-hover-title">{{ b.building_name }}</div>
 
-            <div class="building-hover-loading" *ngIf="buildingRoomsLoadingId === b.id">
+            <div class="building-hover-loading" *ngIf="isBuildingRoomsLoading(b.id)">
               Loading rooms…
             </div>
 
-            <div class="building-hover-empty" *ngIf="buildingRoomsLoadingId !== b.id && getBuildingRooms(b.id).length === 0">
+            <div class="building-hover-empty" *ngIf="hasBuildingRoomsLoaded(b.id) && !isBuildingRoomsLoading(b.id) && getBuildingRooms(b.id).length === 0">
               No&nbsp;rooms&nbsp;yet
             </div>
 

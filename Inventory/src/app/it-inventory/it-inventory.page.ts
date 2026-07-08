@@ -655,8 +655,12 @@ export class ItInventoryPage implements OnInit, OnDestroy {
   }
 
   saveNewItem() {
+    const enteredNewType = String(this.newItemTypeName || '').trim();
+    const selectedType = String(this.newItem.item_type || '').trim();
+    const resolvedItemType = this.showCreateTypeInput ? enteredNewType : selectedType;
+
     // Validate required fields
-    if (!this.newItem.item_type?.trim()) {
+    if (!resolvedItemType) {
       alert('Please select or enter an item type');
       return;
     }
@@ -673,13 +677,10 @@ export class ItInventoryPage implements OnInit, OnDestroy {
       return;
     }
 
-    // If creating new item type
-    if (this.showCreateTypeInput && this.newItemTypeName.trim()) {
-      this.newItem.item_type = this.newItemTypeName.trim();
-    }
+    this.newItem.item_type = resolvedItemType;
 
     const payload = {
-      item_type: String(this.newItem.item_type).trim(),
+      item_type: resolvedItemType,
       code: String(this.newItem.code).trim(),
       item_details: String(this.newItem.item_details || '').trim(),
       brand_id: this.newItem.brand_id || null,

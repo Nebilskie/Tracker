@@ -1212,7 +1212,7 @@ async function releaseReservedItem(conn, requestId, requestText) {
   }
 }
 
-async function markRequestedItemUsed(conn, requestId, requestText) {
+async function markRequestedItemUsed(conn, requestId, requestText, targetStatus = 2) {
   try {
     const [reqRows] = await conn.query(
       "SELECT user_id, inventory_table, inventory_item_id, inventory_item_name FROM requests WHERE id = ?",
@@ -1225,7 +1225,7 @@ async function markRequestedItemUsed(conn, requestId, requestText) {
     let itemType = null;
     const requestTextValue = String(requestText || '').trim();
     const itemTypeFromText = await resolveInventoryTableFromRequestText(conn, requestTextValue);
-    console.log(`[markRequestedItemUsed] requestId=${requestId} text='${requestTextValue}' itemId=${itemId} itemName=${itemName} itemTypeFromText=${itemTypeFromText}`);
+    console.log(`[markRequestedItemUsed] requestId=${requestId} text='${requestTextValue}' itemId=${itemId} itemName=${itemName} itemTypeFromText=${itemTypeFromText} targetStatus=${targetStatus}`);
 
     if (!itemId && itemName) {
       const [itemRows] = await conn.query(
@@ -1256,8 +1256,8 @@ async function markRequestedItemUsed(conn, requestId, requestText) {
         const pickedType = candidate.item_type || null;
 
         const [updateResult] = await conn.query(
-          `UPDATE mst_item SET status = 2, last_update = CURRENT_TIMESTAMP WHERE id = ?`,
-          [pickedId]
+          `UPDATE mst_item SET status = ?, last_update = CURRENT_TIMESTAMP WHERE id = ?`,
+          [targetStatus, pickedId]
         );
 
         console.log('[markRequestedItemUsed] updateResult=', updateResult);
@@ -1288,8 +1288,8 @@ async function markRequestedItemUsed(conn, requestId, requestText) {
         const pickedType2 = candidate2.item_type || null;
 
         const [updateResult2] = await conn.query(
-          `UPDATE mst_item SET status = 2, last_update = CURRENT_TIMESTAMP WHERE id = ?`,
-          [pickedId2]
+          `UPDATE mst_item SET status = ?, last_update = CURRENT_TIMESTAMP WHERE id = ?`,
+          [targetStatus, pickedId2]
         );
         console.log('[markRequestedItemUsed] fallback updateResult=', updateResult2);
 
@@ -1306,8 +1306,8 @@ async function markRequestedItemUsed(conn, requestId, requestText) {
     }
 
     await conn.query(
-      `UPDATE mst_item SET status = 2, last_update = CURRENT_TIMESTAMP WHERE id = ?`,
-      [itemId]
+      `UPDATE mst_item SET status = ?, last_update = CURRENT_TIMESTAMP WHERE id = ?`,
+      [targetStatus, itemId]
     );
 
     await conn.query(
@@ -1333,6 +1333,160 @@ async function markRequestedItemUsed(conn, requestId, requestText) {
     }
   } catch (err) {
     console.error(`❌ Error marking item used for request ${requestId}:`, err);
+  }
+}
+
+async function setItemStatusByCode(conn, itemCode, statusValue) {
+  const code = String(itemCode || '').trim();
+  if (!code) return false;
+
+  const [result] = await conn.query(
+    `UPDATE mst_item
+     SET status = ?, last_update = CURRENT_TIMESTAMP
+     WHERE LOWER(TRIM(code)) = LOWER(TRIM(?))`,
+    [statusValue, code]
+  );
+
+  return Number(result?.affectedRows || 0) > 0;
+}
+
+async function moveItemToStorageByCode(conn, itemCode) {
+  const code = String(itemCode || '').trim();
+  if (!code) return false;
+
+  const storageBuildingId = await ensureStorageBuildingId(conn);
+  if (!storageBuildingId) return false;
+
+  const hasBuildingId = await hasColumn(conn, 'mst_item', 'building_id');
+  const hasRoomId = await hasColumn(conn, 'mst_item', 'room_id');
+  const hasCubicleId = await hasColumn(conn, 'mst_item', 'cubicle_id');
+  const hasLocation = await hasColumn(conn, 'mst_item', 'location');
+
+  const updateParts = ['last_update = CURRENT_TIMESTAMP'];
+  const params = [];
+
+  if (hasBuildingId) {
+    updateParts.unshift('building_id = ?');
+    params.push(storageBuildingId);
+  }
+  if (hasRoomId) {
+    updateParts.push('room_id = NULL');
+  }
+  if (hasCubicleId) {
+    updateParts.push('cubicle_id = NULL');
+  }
+  if (hasLocation) {
+    updateParts.push(`location = 'storage'`);
+  }
+
+  const [result] = await conn.query(
+    `UPDATE mst_item
+     SET ${updateParts.join(', ')}
+     WHERE LOWER(TRIM(code)) = LOWER(TRIM(?))`,
+    [...params, code]
+  );
+
+  return Number(result?.affectedRows || 0) > 0;
+}
+
+async function applyCompletionAction(conn, requestId, requestText, completionAction, completionTargetItemCode = '') {
+  const action = String(completionAction || 'add').trim().toLowerCase();
+  const selectedTargetCode = String(completionTargetItemCode || '').trim();
+
+  if (action === 'add') {
+    await markRequestedItemUsed(conn, requestId, requestText, 2);
+    return;
+  }
+
+  const [reqRows] = await conn.query(
+    `SELECT inventory_item_name, previous_inventory_item_name
+     FROM requests
+     WHERE id = ?
+     LIMIT 1`,
+    [requestId]
+  );
+
+  const assignedItemCode = String(reqRows?.[0]?.inventory_item_name || '').trim();
+  let previousUsedItemCode = String(reqRows?.[0]?.previous_inventory_item_name || '').trim();
+
+  // Explicitly selected current-used item from UI takes priority when valid.
+  if (selectedTargetCode && selectedTargetCode.toLowerCase() !== assignedItemCode.toLowerCase()) {
+    const target = await resolveRequestCubicleTarget(conn, requestText);
+    const requestedType = await resolveInventoryTableFromRequestText(conn, requestText);
+
+    const targetWhere = [
+      'LOWER(TRIM(code)) = LOWER(TRIM(?))',
+      'status = 2'
+    ];
+    const targetParams = [selectedTargetCode];
+
+    if (requestedType) {
+      targetWhere.push('LOWER(TRIM(item_type)) = LOWER(TRIM(?))');
+      targetParams.push(requestedType);
+    }
+    if (target?.cubicleId) {
+      targetWhere.push('cubicle_id = ?');
+      targetParams.push(target.cubicleId);
+    }
+
+    const [selectedRows] = await conn.query(
+      `SELECT code FROM mst_item WHERE ${targetWhere.join(' AND ')} LIMIT 1`,
+      targetParams
+    );
+
+    if (selectedRows.length) {
+      previousUsedItemCode = String(selectedRows[0].code || '').trim();
+    }
+  }
+
+  // Fallback: if previous item name is missing, resolve current used item from cubicle + type.
+  if (!previousUsedItemCode || previousUsedItemCode.toLowerCase() === assignedItemCode.toLowerCase()) {
+    const target = await resolveRequestCubicleTarget(conn, requestText);
+    const requestedType = await resolveInventoryTableFromRequestText(conn, requestText);
+
+    if (target?.cubicleId && requestedType) {
+      const [currentUsedRows] = await conn.query(
+        `SELECT code
+         FROM mst_item
+         WHERE cubicle_id = ?
+           AND LOWER(TRIM(item_type)) = LOWER(TRIM(?))
+           AND status = 2
+           AND LOWER(TRIM(code)) <> LOWER(TRIM(?))
+         ORDER BY last_update DESC
+         LIMIT 1`,
+        [target.cubicleId, requestedType, assignedItemCode || '']
+      );
+
+      if (currentUsedRows.length) {
+        previousUsedItemCode = String(currentUsedRows[0].code || '').trim();
+      }
+    }
+  }
+
+  // change/defective should affect the previously used item, not the newly assigned one
+  if (previousUsedItemCode && previousUsedItemCode.toLowerCase() !== assignedItemCode.toLowerCase()) {
+    const previousStatus = action === 'defective' ? 0 : 1;
+    await setItemStatusByCode(conn, previousUsedItemCode, previousStatus);
+
+    if (action === 'defective' || action === 'change') {
+      try {
+        await moveItemToStorageByCode(conn, previousUsedItemCode);
+      } catch (storageErr) {
+        console.warn('[completionAction] Unable to move item to storage:', storageErr?.message || storageErr);
+      }
+    }
+
+    await conn.query(
+      `UPDATE requests
+       SET previous_inventory_item_name = ?
+       WHERE id = ?`,
+      [previousUsedItemCode, requestId]
+    );
+  }
+
+  // Only mark assigned item used when it is different from the currently used item being changed/defected.
+  if (assignedItemCode && assignedItemCode.toLowerCase() !== previousUsedItemCode.toLowerCase()) {
+    await markRequestedItemUsed(conn, requestId, requestText, 2);
   }
 }
 
@@ -3281,6 +3435,11 @@ app.put('/api/it-requests/:id', async (req, res) => {
   const requestId = Number(req.params.id);
   const normalizedStatus = normalizeRequestStatus(req.body?.status);
   const rejectionReason = String(req.body?.rejectionReason || req.body?.rejected_reason || '').trim();
+  const completionActionRaw = String(req.body?.completionAction || 'add').trim().toLowerCase();
+  const completionAction = ['change', 'defective', 'add'].includes(completionActionRaw)
+    ? completionActionRaw
+    : 'add';
+  const completionTargetItemCode = String(req.body?.completionTargetItemCode || '').trim();
 
   if (!normalizedStatus) {
     return res.status(400).json({ success: false, error: 'Invalid status' });
@@ -3350,7 +3509,7 @@ app.put('/api/it-requests/:id', async (req, res) => {
     const requestText = reqRows?.[0]?.request_text || '';
 
     if (normalizedStatus === 'C') {
-      await markRequestedItemUsed(conn, requestId, requestText);
+      await applyCompletionAction(conn, requestId, requestText, completionAction, completionTargetItemCode);
     }
 
     if (normalizedStatus === 'R') {

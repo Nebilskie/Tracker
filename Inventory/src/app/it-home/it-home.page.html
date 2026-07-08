@@ -39,15 +39,6 @@
           <span class="stat-label">Used</span>
         </div>
       </div>
-      <div class="stat-card">
-        <div class="stat-icon purple">
-          <ion-icon name="briefcase-outline"></ion-icon>
-        </div>
-        <div class="stat-content">
-          <span class="stat-number">{{ myItemsCount }}</span>
-          <span class="stat-label">My Items</span>
-        </div>
-      </div>
     </div>
 
     <!-- Main Grid -->
@@ -117,6 +108,40 @@
             </div>
           </div>
           <div class="tab-count-badge green">{{ requestCounts.completed }}</div>
+        </div>
+
+        <div class="card my-items-table-card my-items-side-card">
+          <div class="card-header">
+            <div class="card-title">
+              <ion-icon name="hardware-chip-outline"></ion-icon>
+              <h3>My Items</h3>
+            </div>
+            <span class="card-badge">{{ currentlyUsingCount }} used</span>
+          </div>
+          <div class="my-items-table-scroll">
+            <table class="items-table my-items-table">
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th>Name</th>
+                  <th>Used</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr *ngIf="currentlyUsingItemBreakdown.length === 0">
+                  <td colspan="3" class="empty-my-items">No used items found.</td>
+                </tr>
+                <tr *ngFor="let item of currentlyUsingItemBreakdown">
+                  <td class="item-name">
+                    <span class="item-dot dot-green"></span>
+                    {{ item.itemType }}
+                  </td>
+                  <td>{{ item.itemName }}</td>
+                  <td><span class="badge-used">{{ item.count }}</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 

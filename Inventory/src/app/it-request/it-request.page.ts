@@ -20,6 +20,11 @@ interface RequestItem {
   completedAt?: string;
   rejectedAt?: string;
   pendingAt?: string;
+  createdAtRaw?: string;
+  inprogressAtRaw?: string;
+  completedAtRaw?: string;
+  rejectedAtRaw?: string;
+  pendingAtRaw?: string;
   rejectedFrom?: 'new' | 'inprogress' | null;
   inventory_item_id?: number | null;
   inventory_item_name?: string | null;
@@ -55,11 +60,16 @@ export class ItRequestPage implements OnInit, OnDestroy {
   requests: RequestItem[] = [];
   selectedRequest: RequestItem | null = null;
   selectedRequestItemCode = '';
+  selectedCompletionAction: 'change' | 'defective' | 'add' = 'add';
+  hasSameTypeCurrentlyUsed = false;
+  selectedCurrentUsedItemCode = '';
+  currentUsedSameTypeOptions: Array<{ code: string; label: string }> = [];
   availableRequestItems: InventoryItem[] = [];
   isSavingItemType = false;
   showDetailModal = false;
   currentUser: UserData | null = null;
   inventorySummary: InventorySummaryItem[] = [];
+  searchQuery = '';
   private refreshSubscription: Subscription | null = null;
 
   constructor(
@@ -114,6 +124,11 @@ export class ItRequestPage implements OnInit, OnDestroy {
               completedAt: req.completed_at ? new Date(req.completed_at).toLocaleString() : undefined,
               rejectedAt: req.rejected_at ? new Date(req.rejected_at).toLocaleString() : undefined,
               pendingAt: req.pending_at ? new Date(req.pending_at).toLocaleString() : undefined,
+              createdAtRaw: req.created_at || undefined,
+              inprogressAtRaw: req.inprogress_at || undefined,
+              completedAtRaw: req.completed_at || undefined,
+              rejectedAtRaw: req.rejected_at || undefined,
+              pendingAtRaw: req.pending_at || undefined,
               rejectedFrom: req.rejected_from || null,
               inventory_item_id: req.inventory_item_id ?? null,
               inventory_item_name: req.inventory_item_name || null,
@@ -132,6 +147,7 @@ export class ItRequestPage implements OnInit, OnDestroy {
                 this.selectedRequestItemCode = String(refreshedRequest.inventory_item_name || '').trim();
                 this.loadAvailableItemCount(refreshedRequest);
                 this.loadAvailableRequestItems(refreshedRequest);
+                this.evaluateSameTypeCurrentlyUsed(refreshedRequest);
               } else {
                 this.closeDetailModal();
               }
@@ -164,7 +180,41 @@ export class ItRequestPage implements OnInit, OnDestroy {
   }
 
   itemsByStatus(status: RequestItem['status']) {
-    return this.requests.filter(r => r.status === status);
+    return this.requests
+      .filter((r) => {
+        const statusMatch = r.status === status;
+        if (!this.searchQuery.trim()) {
+          return statusMatch;
+        }
+        const query = this.searchQuery.toLowerCase();
+        const titleMatch = (r.title || '').toLowerCase().includes(query);
+        const idMatch = (r.id || '').toString().includes(query);
+        return statusMatch && (titleMatch || idMatch);
+      })
+      .slice()
+      .sort((a, b) => this.getSortTimestamp(b, status) - this.getSortTimestamp(a, status));
+  }
+
+  private getSortTimestamp(request: RequestItem, status: RequestItem['status']): number {
+    const parse = (value?: string): number => {
+      if (!value) return 0;
+      const ts = new Date(value).getTime();
+      return Number.isFinite(ts) ? ts : 0;
+    };
+
+    switch (status) {
+      case 'inprogress':
+        return parse(request.inprogressAtRaw) || parse(request.createdAtRaw);
+      case 'completed':
+        return parse(request.completedAtRaw) || parse(request.inprogressAtRaw) || parse(request.createdAtRaw);
+      case 'rejected':
+        return parse(request.rejectedAtRaw) || parse(request.inprogressAtRaw) || parse(request.createdAtRaw);
+      case 'pending':
+        return parse(request.pendingAtRaw) || parse(request.createdAtRaw);
+      case 'new':
+      default:
+        return parse(request.createdAtRaw);
+    }
   }
 
   getInitials(username: string): string {
@@ -181,6 +231,15 @@ export class ItRequestPage implements OnInit, OnDestroy {
 
   getModalRequestTitle(request: RequestItem | null): string {
     return this.getRequestDisplayTitle(request);
+  }
+
+  filterRequests() {
+    if (!this.searchQuery.trim()) {
+      // If search is empty, no filtering needed
+      return;
+    }
+    // Search filtering is handled in itemsByStatus through a pipe or direct filter
+    // This method can be used to trigger additional search logic if needed
   }
 
   getRequestedItemLabel(request: RequestItem | null): string {
@@ -244,13 +303,22 @@ export class ItRequestPage implements OnInit, OnDestroy {
     await this.loadInventorySummary();
     this.selectedRequest = request;
     this.selectedRequestItemCode = String(request.inventory_item_name || '').trim();
+    this.selectedCompletionAction = 'change';
+    this.hasSameTypeCurrentlyUsed = false;
+    this.selectedCurrentUsedItemCode = '';
+    this.currentUsedSameTypeOptions = [];
     this.loadAvailableRequestItems(request);
+    this.evaluateSameTypeCurrentlyUsed(request);
     this.showDetailModal = true;
     this.loadAvailableItemCount(request);
   }
 
   closeDetailModal() {
     this.selectedRequestItemCode = '';
+    this.selectedCompletionAction = 'change';
+    this.hasSameTypeCurrentlyUsed = false;
+    this.selectedCurrentUsedItemCode = '';
+    this.currentUsedSameTypeOptions = [];
     this.availableRequestItems = [];
     this.selectedRequest = null;
     this.showDetailModal = false;
@@ -296,6 +364,7 @@ export class ItRequestPage implements OnInit, OnDestroy {
     const requestedType = this.extractRequestedItemName(request?.title || '').trim();
     if (!requestedType) {
       this.availableRequestItems = [];
+      this.ensureValidCompletionAction();
       return;
     }
 
@@ -306,12 +375,110 @@ export class ItRequestPage implements OnInit, OnDestroy {
           const status = Number(item?.status);
           return status === 1;
         });
+        this.ensureValidCompletionAction();
       },
       (error) => {
         console.error('Error loading available request items:', error);
         this.availableRequestItems = [];
+        this.ensureValidCompletionAction();
       }
     );
+  }
+
+  canAddSameItemType(): boolean {
+    return this.getRequestItemOptions().length > 0;
+  }
+
+  canShowCompletionAction(request: RequestItem | null): boolean {
+    return !!request
+      && request.status === 'inprogress'
+      && this.canAddSameItemType()
+      && this.hasSameTypeCurrentlyUsed;
+  }
+
+  shouldShowCurrentUsedItemSelector(request: RequestItem | null): boolean {
+    return !!request
+      && request.status === 'inprogress'
+      && (this.selectedCompletionAction === 'change' || this.selectedCompletionAction === 'defective')
+      && this.currentUsedSameTypeOptions.length > 1;
+  }
+
+  private normalizeItemType(value: unknown): string {
+    return String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_-]+/g, '');
+  }
+
+  private evaluateSameTypeCurrentlyUsed(request: RequestItem | null) {
+    if (!request) {
+      this.hasSameTypeCurrentlyUsed = false;
+      return;
+    }
+
+    const requestedType = this.normalizeItemType(this.extractRequestedItemName(request.title || ''));
+    if (!requestedType) {
+      this.hasSameTypeCurrentlyUsed = false;
+      return;
+    }
+
+    const fallback = this.extractLocationParts(request.title || '');
+    const cubicleLabel = String(request.assigned_cubicle_label || fallback.cubicle || '').trim();
+    if (!cubicleLabel) {
+      this.hasSameTypeCurrentlyUsed = false;
+      return;
+    }
+
+    this.inventoryService.getItemsByCubicle(cubicleLabel).subscribe(
+      (response) => {
+        const items = Array.isArray(response?.items) ? response.items : [];
+        const usedSameTypeItems = items.filter((item: InventoryItem) => {
+          const status = Number(item?.status);
+          if (status !== 2) {
+            return false;
+          }
+
+          const itemType = this.normalizeItemType(item.item_type || item.name || item.type);
+          return itemType === requestedType;
+        });
+
+        this.currentUsedSameTypeOptions = usedSameTypeItems
+          .map((item: InventoryItem) => {
+            const code = String(item.code || '').trim();
+            if (!code) return null;
+            const labelParts = [code, String(item.item_details || '').trim()].filter(Boolean);
+            return { code, label: labelParts.join(' - ') };
+          })
+          .filter((item): item is { code: string; label: string } => !!item);
+
+        this.hasSameTypeCurrentlyUsed = this.currentUsedSameTypeOptions.length > 0;
+
+        if (this.currentUsedSameTypeOptions.length === 1) {
+          this.selectedCurrentUsedItemCode = this.currentUsedSameTypeOptions[0].code;
+        } else if (this.currentUsedSameTypeOptions.length > 1) {
+          const stillValid = this.currentUsedSameTypeOptions.some((item) => item.code === this.selectedCurrentUsedItemCode);
+          if (!stillValid) {
+            this.selectedCurrentUsedItemCode = '';
+          }
+        } else {
+          this.selectedCurrentUsedItemCode = '';
+        }
+
+        this.ensureValidCompletionAction();
+      },
+      (_error) => {
+        this.hasSameTypeCurrentlyUsed = false;
+        this.selectedCurrentUsedItemCode = '';
+        this.currentUsedSameTypeOptions = [];
+        this.ensureValidCompletionAction();
+      }
+    );
+  }
+
+  private ensureValidCompletionAction() {
+    if (this.selectedCompletionAction === 'add' && (!this.canAddSameItemType() || !this.hasSameTypeCurrentlyUsed)) {
+      this.selectedCompletionAction = 'change';
+    }
   }
 
   getRequestItemOptions(): { code: string; label: string }[] {
@@ -449,7 +616,22 @@ export class ItRequestPage implements OnInit, OnDestroy {
   }
 
   canDone(r: RequestItem | null): boolean {
-    return !!r && r.status === 'inprogress';
+    if (!r || r.status !== 'inprogress') {
+      return false;
+    }
+
+    const selectedCode = String(this.selectedRequestItemCode || r.inventory_item_name || '').trim();
+    const hasAssignedItem = selectedCode.length > 0;
+
+    if (!hasAssignedItem) {
+      return false;
+    }
+
+    if (this.shouldShowCurrentUsedItemSelector(r)) {
+      return String(this.selectedCurrentUsedItemCode || '').trim().length > 0;
+    }
+
+    return true;
   }
 
   canReject(r: RequestItem | null): boolean {
@@ -480,7 +662,20 @@ export class ItRequestPage implements OnInit, OnDestroy {
       await this.showAlert('Error', 'Request ID not found');
       return;
     }
-    await this.updateStatus(request.id, 'completed', 'Request marked as Done → Completed');
+
+    if (!this.canDone(request)) {
+      await this.showAlert('Required', 'Please select an item before marking this request as done.');
+      return;
+    }
+
+    await this.updateStatus(
+      request.id,
+      'completed',
+      'Request marked as Done → Completed',
+      '',
+      this.selectedCompletionAction,
+      this.selectedCurrentUsedItemCode
+    );
   }
 
   async rejectRequest(request: RequestItem) {
@@ -501,9 +696,11 @@ export class ItRequestPage implements OnInit, OnDestroy {
     id: number,
     status: RequestItem['status'],
     successMsg: string,
-    rejectionReason: string = ''
+    rejectionReason: string = '',
+    completionAction: 'change' | 'defective' | 'add' = 'add',
+    completionTargetItemCode: string = ''
   ) {
-    this.itRequestService.updateRequestStatus(id, status, rejectionReason).subscribe(
+    this.itRequestService.updateRequestStatus(id, status, rejectionReason, completionAction, completionTargetItemCode).subscribe(
       async (response: any) => {
         if (response?.success) {
           await this.showAlert('Success', successMsg);
@@ -631,6 +828,17 @@ export class ItRequestPage implements OnInit, OnDestroy {
       case 'pending': return 'Pending';
       default: return status;
     }
+  }
+
+  getStatusIcon(status: string): string {
+    const iconMap: { [key: string]: string } = {
+      'new': 'document',
+      'inprogress': 'hourglass',
+      'completed': 'checkmark-circle',
+      'rejected': 'close-circle',
+      'pending': 'time'
+    };
+    return iconMap[status] || 'list';
   }
 
   async showAlert(header: string, message: string) {

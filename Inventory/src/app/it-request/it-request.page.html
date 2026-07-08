@@ -1,13 +1,45 @@
 <ion-content>
 
   <div class="request-container">
+    <!-- Page Header -->
+    <div class="page-header">
+      <div class="header-content">
+        <h1 class="page-title">IT Requests</h1>
+        <p class="page-subtitle">Manage and track all IT requests</p>
+      </div>
+      <div class="header-stats" *ngIf="currentUser">
+        <div class="search-box">
+          <ion-icon name="search" class="search-icon"></ion-icon>
+          <input 
+            type="text" 
+            placeholder="Search by title or ID..."
+            [(ngModel)]="searchQuery"
+            (input)="filterRequests()">
+          <ion-button 
+            *ngIf="searchQuery" 
+            fill="clear" 
+            class="clear-btn"
+            (click)="searchQuery = ''; filterRequests()">
+            <ion-icon name="close-circle"></ion-icon>
+          </ion-button>
+        </div>
+      </div>
+    </div>
 
-    <div class="requests-board">
-      <div class="board-column" *ngFor="let col of columns">
-
-        <!-- COLUMN HEADER -->
+    <div class="requests-board" *ngIf="currentUser">
+      <div class="board-column" *ngFor="let col of columns" [attr.data-status]="col.status">
+        
+        <!-- Column Header with Icon -->
         <div class="column-header">
-          <div class="title">{{ col.label }}</div>
+          <div class="header-title-block">
+            <div class="status-icon" [class]="'icon-' + col.status">
+              <ion-icon [name]="getStatusIcon(col.status)"></ion-icon>
+            </div>
+            <div>
+              <div class="column-title">{{ col.label }}</div>
+              <div class="column-count">{{ (itemsByStatus(col.status)).length }} item<span *ngIf="(itemsByStatus(col.status)).length !== 1">s</span></div>
+            </div>
+          </div>
 
           <!-- ✅ SHOW ADD BUTTON ONLY IN NEW -->
           <ion-button
@@ -23,16 +55,24 @@
         <div class="cards">
           <div
             class="request-card"
+            [class]="'status-' + r.status"
             *ngFor="let r of itemsByStatus(col.status)"
             (click)="onCardClick(col.status, r)">
-
-            <div class="card-header-row">
-              <span class="card-id">#{{ r.id }}</span>
+            
+            <!-- Card ID -->
+            <div class="card-id">#{{ r.id }}</div>
+            
+            <!-- Status Badge -->
+            <div class="status-badge" [class]="'badge-' + r.status">
+              {{ formatStatusLabel(r.status) }}
             </div>
+
+            <!-- Card Content -->
             <div class="card-title">
               {{ getRequestDisplayTitle(r) }}
             </div>
 
+            <!-- Card Meta -->
             <div class="card-meta">
               <div class="avatar">
                 {{ r.ownerInitials }}
@@ -43,11 +83,20 @@
                 <div class="date">{{ r.date }}</div>
               </div>
             </div>
+
+            <!-- Hover Indicator -->
+            <div class="card-hover-indicator">
+              <ion-icon name="arrow-forward"></ion-icon>
+            </div>
           </div>
 
-          <div *ngIf="itemsByStatus(col.status).length === 0"
-               class="empty-state">
-            No requests
+          <!-- Empty State -->
+          <div
+            *ngIf="itemsByStatus(col.status).length === 0"
+            class="empty-state"
+          >
+            <ion-icon name="inbox-outline"></ion-icon>
+            <div class="empty-text">No {{ col.label | lowercase }} requests</div>
           </div>
         </div>
 
@@ -163,6 +212,35 @@
         </select>
       </div>
 
+      <div class="item-type-row" *ngIf="canShowCompletionAction(selectedRequest)">
+        <label class="item-type-label" for="completion-action-select">
+          Completion action
+        </label>
+        <select
+          id="completion-action-select"
+          class="item-type-select"
+          [(ngModel)]="selectedCompletionAction">
+          <option value="change">Change item</option>
+          <option value="defective">Defective</option>
+          <option *ngIf="canAddSameItemType()" value="add">Add (same item type)</option>
+        </select>
+      </div>
+
+      <div class="item-type-row" *ngIf="shouldShowCurrentUsedItemSelector(selectedRequest)">
+        <label class="item-type-label" for="current-used-item-select">
+          Select current {{ extractRequestedItemName(selectedRequest.title) }} item
+        </label>
+        <select
+          id="current-used-item-select"
+          class="item-type-select"
+          [(ngModel)]="selectedCurrentUsedItemCode">
+          <option value="">Select item to update</option>
+          <option *ngFor="let option of currentUsedSameTypeOptions" [value]="option.code">
+            {{ option.label }}
+          </option>
+        </select>
+      </div>
+
       <!-- TIME + DATE -->
       <div class="time-date">
         <div class="td-col">
@@ -238,6 +316,7 @@
 
         <button *ngIf="selectedRequest.status === 'inprogress'"
                 class="btn-outline success"
+          [disabled]="!canDone(selectedRequest)"
                 (click)="doneRequest(selectedRequest)">
           DONE
         </button>

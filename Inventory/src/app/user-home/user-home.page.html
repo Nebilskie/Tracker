@@ -21,10 +21,6 @@
         <span class="stat-label">Completed</span>
         <span class="stat-value">{{ requestCounts.completed }}</span>
       </div>
-      <div class="stat-card card-items">
-        <span class="stat-label">My Items</span>
-        <span class="stat-value">{{ myItemsCount }}</span>
-      </div>
     </div>
 
     <div class="dashboard-grid">
@@ -51,32 +47,65 @@
         </div>
       </section>
 
-      <section class="card overview-card">
-        <div class="card-header">
-          <div>
-            <h2>Request Overview</h2>
-            <p class="card-subtitle">A quick snapshot of your current workload</p>
+      <div class="dashboard-side">
+        <section class="card overview-card">
+          <div class="card-header">
+            <div>
+              <h2>Request Overview</h2>
+              <p class="card-subtitle">A quick snapshot of your current workload</p>
+            </div>
           </div>
-        </div>
-        <div class="overview-grid">
-          <div class="overview-item">
-            <span class="overview-label">Total Requests</span>
-            <span class="overview-value">{{ requestCounts.total }}</span>
+          <div class="overview-grid">
+            <div class="overview-item">
+              <span class="overview-label">Total Requests</span>
+              <span class="overview-value">{{ requestCounts.total }}</span>
+            </div>
+            <div class="overview-item">
+              <span class="overview-label">Pending</span>
+              <span class="overview-value">{{ requestCounts.new }}</span>
+            </div>
+            <div class="overview-item">
+              <span class="overview-label">In Progress</span>
+              <span class="overview-value">{{ requestCounts.inProgress }}</span>
+            </div>
+            <div class="overview-item">
+              <span class="overview-label">Completed</span>
+              <span class="overview-value">{{ requestCounts.completed }}</span>
+            </div>
           </div>
-          <div class="overview-item">
-            <span class="overview-label">Pending</span>
-            <span class="overview-value">{{ requestCounts.new }}</span>
+        </section>
+
+        <section class="card my-items-table-card">
+          <div class="card-header">
+            <div>
+              <h2>My Items</h2>
+              <p class="card-subtitle">Items currently marked as used</p>
+            </div>
           </div>
-          <div class="overview-item">
-            <span class="overview-label">In Progress</span>
-            <span class="overview-value">{{ requestCounts.inProgress }}</span>
-          </div>
-          <div class="overview-item">
-            <span class="overview-label">Completed</span>
-            <span class="overview-value">{{ requestCounts.completed }}</span>
-          </div>
-        </div>
-      </section>
+          <table class="my-items-table">
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>Name</th>
+                <th>Used</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngIf="currentlyUsingItemBreakdown.length === 0">
+                <td colspan="3" class="empty-my-items">No used items found.</td>
+              </tr>
+              <tr *ngFor="let item of currentlyUsingItemBreakdown">
+                <td class="my-item-name">
+                  <span class="my-item-dot"></span>
+                  {{ item.itemType }}
+                </td>
+                <td>{{ item.itemName }}</td>
+                <td><span class="my-item-used">{{ item.count }}</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </div>
     </div>
   </div>
 </ion-content>

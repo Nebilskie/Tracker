@@ -5,11 +5,12 @@
   width: 100%;
   min-height: 100%;
   box-sizing: border-box;
-  background-color: var(--bg-primary, #f0f2f8);
+  background: linear-gradient(135deg, #f4f6fb 0%, #f8f9fc 100%);
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 24px;
   position: relative;
+  overflow: visible;
 }
 
 .fp-toolbar {
@@ -18,30 +19,36 @@
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 12px;
-  background: var(--bg-card, #fff);
-  border-radius: 12px;
-  padding: 12px 18px;
-  box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.06));
-  border: 1px solid var(--border-light, #f0f0f0);
+  background: linear-gradient(135deg, white 0%, rgba(249, 250, 255, 0.8) 100%);
+  border-radius: 16px;
+  padding: 18px 28px;
+  box-shadow: 0 4px 16px rgba(95, 108, 255, 0.1);
+  border: 1px solid rgba(95, 108, 255, 0.12);
+  backdrop-filter: blur(6px);
 }
 
 .fp-toolbar-left {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 8px;
 }
 
 .fp-title {
   margin: 0;
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--text-primary, #1e293b);
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: -0.5px;
+  background: linear-gradient(135deg, #111827 0%, #5f6cff 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .fp-subtitle {
   font-size: 13px;
-  color: var(--text-muted, #64748b);
-  font-weight: 500;
+  color: #64748b;
+  font-weight: 600;
+  letter-spacing: 0.2px;
 }
 
 .fp-toolbar-right {
@@ -52,125 +59,398 @@
 }
 
 .fp-search {
-  border: 1px solid var(--border-color, #e5e7eb);
-  border-radius: 8px;
-  padding: 7px 14px;
+  border: 1.5px solid #e2e8f0;
+  background: linear-gradient(135deg, #f9fafb 0%, #f8f9ff 100%);
+  color: #333;
+  border-radius: 12px;
+  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  padding: 11px 18px;
   font-size: 13px;
-  width: 100%;
-  max-width: 280px;
-  outline: none;
-  background: var(--bg-input, #f9fafb);
-  color: var(--text-primary, #333);
+  font-weight: 500;
+
+  &::placeholder {
+    color: #cbd5e1;
+    font-weight: 500;
+  }
+
+  &:focus {
+    outline: none;
+    border-color: #5f6cff;
+    box-shadow: 0 0 0 4px rgba(95, 108, 255, 0.15), 0 6px 20px rgba(95, 108, 255, 0.2);
+    background: white;
+    transform: translateY(-1px);
+  }
+
+  &:hover {
+    border-color: #cbd5e1;
+    box-shadow: 0 2px 8px rgba(95, 108, 255, 0.08);
+  }
 }
 
 .fp-toolbar-actions {
   display: flex;
-  gap: 8px;
+  gap: 14px;
   align-items: center;
 }
 
 .fp-btn {
-  border-radius: 999px;
-  padding: 8px 16px;
+  border-radius: 12px;
+  padding: 11px 22px;
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
-  border: 1px solid transparent;
-  transition: all 0.15s ease;
+  border: none;
+  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  position: relative;
+  overflow: hidden;
+}
+
+.fp-btn::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  transform: translate(-50%, -50%);
+  transition: width 0.6s, height 0.6s;
+  z-index: 0;
 }
 
 .fp-btn-primary {
-  background: #2563eb;
+  background: linear-gradient(135deg, #5f6cff 0%, #7d86ff 100%);
   color: #fff;
-  border-color: #2563eb;
+  box-shadow: 0 4px 12px rgba(95, 108, 255, 0.3);
+
   &:hover {
-    background: #1d4ed8;
+    transform: translateY(-3px);
+    box-shadow: 0 8px 24px rgba(95, 108, 255, 0.4);
+  }
+
+  &:active {
+    transform: scale(0.95);
   }
 }
 
 .fp-btn-secondary {
-  background: #fff;
-  color: #334155;
-  border-color: #d5dbe3;
+  background: white;
+  color: #5f6cff;
+  border: 2px solid #5f6cff;
+  box-shadow: 0 4px 12px rgba(95, 108, 255, 0.15);
+
   &:hover {
-    background: #f8fafc;
+    background: linear-gradient(135deg, #5f6cff 0%, #7d86ff 100%);
+    color: white;
+    transform: translateY(-3px);
+    box-shadow: 0 8px 24px rgba(95, 108, 255, 0.3);
+  }
+
+  &:active {
+    transform: scale(0.95);
   }
 }
 
 .fp-btn-danger {
   background: #ef4444;
   color: #fff;
-  border-color: #ef4444;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);
+
   &:hover {
     background: #dc2626;
-    border-color: #dc2626;
+    transform: translateY(-3px);
+    box-shadow: 0 8px 24px rgba(239, 68, 68, 0.3);
+  }
+
+  &:active {
+    transform: scale(0.95);
   }
 }
 
 .building-overview {
   flex: 1;
-  min-height: 280px;
+  min-height: 320px;
+  animation: fadeIn 0.5s ease;
+  overflow: visible;
 }
 
 .building-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 32px;
   align-content: start;
+  padding: 12px;
+  overflow: visible;
 }
 
 .building-card {
   position: relative;
-  border-radius: 12px;
-  background: #f8fafc;
-  min-height: 200px;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
-  border: 2px solid #e5e7eb;
+  border-radius: 18px;
+  background: white;
+  min-height: 260px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(95, 108, 255, 0.1);
   cursor: pointer;
-  transition: box-shadow 0.15s ease, border-color 0.15s ease;
-  overflow: visible; /* allow building hover quickview to extend */
+  transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+  overflow: visible;
   display: flex;
   flex-direction: column;
 
+  &::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 5px;
+    background: linear-gradient(90deg, #5f6cff 0%, #7d86ff 50%, #5f6cff 100%);
+    border-radius: 18px 18px 0 0;
+    opacity: 0;
+    transition: opacity 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    box-shadow: 0 4px 12px rgba(95, 108, 255, 0.2);
+    z-index: 10;
+    pointer-events: none;
+  }
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 18px;
+    padding: 1px;
+    background: linear-gradient(135deg, rgba(95, 108, 255, 0.2) 0%, transparent 100%);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    opacity: 0;
+    transition: opacity 0.4s ease;
+    pointer-events: none;
+  }
+
   &:hover {
-    border-color: #93c5fd;
-    box-shadow: 0 10px 22px rgba(37, 99, 235, 0.12);
+    border-color: rgba(95, 108, 255, 0.3);
+    box-shadow: 0 16px 40px rgba(95, 108, 255, 0.18);
+    transform: translateY(-10px);
     z-index: 200;
+
+    &::after {
+      opacity: 1;
+    }
+
+    &::before {
+      opacity: 1;
+    }
   }
 
   &.selected {
-    outline: 3px solid #2563eb;
+    outline: 3px solid #5f6cff;
     outline-offset: 2px;
+    box-shadow: 0 16px 40px rgba(95, 108, 255, 0.25);
   }
 }
 
 .building-card-surface {
   position: absolute;
   inset: 0;
-  border-radius: 12px;
-  overflow: hidden;
-  background: #f8fafc;
+  border-radius: 18px;
+  overflow: visible;
+  background: linear-gradient(135deg, #fafbff 0%, #f5f7ff 50%, #f8f9ff 100%);
   display: flex;
   flex-direction: column;
+  z-index: 1;
+}
+
+.building-card-tab {
+  align-self: flex-start;
+  margin: 18px 0 0 18px;
+  padding: 9px 16px;
+  background: linear-gradient(135deg, rgba(95, 108, 255, 0.14) 0%, rgba(125, 134, 255, 0.1) 100%);
+  color: #5f6cff;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.7px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  border: 1px solid rgba(95, 108, 255, 0.2);
+  box-shadow: 0 2px 8px rgba(95, 108, 255, 0.1);
+}
+
+.building-card-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  gap: 16px;
+}
+
+.building-card-rooms {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+
+.bc-room {
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(95, 108, 255, 0.09) 0%, rgba(125, 134, 255, 0.05) 100%);
+  border: 1.5px solid rgba(95, 108, 255, 0.14);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  overflow: hidden;
+  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  position: relative;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #5f6cff, transparent);
+    opacity: 0;
+    transition: opacity 0.4s ease;
+  }
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 14px;
+    background: radial-gradient(circle at top-right, rgba(95, 108, 255, 0.1) 0%, transparent 70%);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+  }
+
+  &:hover {
+    background: linear-gradient(135deg, rgba(95, 108, 255, 0.14) 0%, rgba(125, 134, 255, 0.09) 100%);
+    border-color: rgba(95, 108, 255, 0.3);
+    box-shadow: 0 6px 16px rgba(95, 108, 255, 0.15);
+    transform: translateY(-3px);
+
+    &::before {
+      opacity: 1;
+    }
+
+    &::after {
+      opacity: 1;
+    }
+  }
+}
+
+.bc-room-name {
+  font-size: 12px;
+  font-weight: 800;
+  color: #111827;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: 0.3px;
+}
+
+.bc-room-viewport {
+  width: 100%;
+  height: 76px;
+  border-radius: 11px;
+  background:
+    linear-gradient(to right, rgba(95, 108, 255, 0.12) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(95, 108, 255, 0.12) 1px, transparent 1px);
+  background-size: 20px 20px;
+  border: 1.5px solid rgba(95, 108, 255, 0.18);
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+  box-shadow: inset 0 1px 3px rgba(95, 108, 255, 0.05);
+}
+
+.bc-room:hover .bc-room-viewport {
+  background:
+    linear-gradient(to right, rgba(95, 108, 255, 0.16) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(95, 108, 255, 0.16) 1px, transparent 1px);
+  background-size: 20px 20px;
+  border-color: rgba(95, 108, 255, 0.3);
+  box-shadow: inset 0 2px 6px rgba(95, 108, 255, 0.1);
+}
+
+.bc-room-world {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+}
+
+.bc-room-item {
+  position: absolute;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.14);
+  transition: all 0.3s ease;
+}
+
+.bc-room:hover .bc-room-item {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16);
+}
+
+.building-card-meta {
+  margin: 0;
+  font-size: 13px;
+  color: #94a3b8;
+  font-weight: 700;
+  text-align: center;
+  letter-spacing: 0.2px;
+}
+
+.building-card-action {
+  border: none;
+  background: linear-gradient(135deg, rgba(95, 108, 255, 0.12) 0%, rgba(125, 134, 255, 0.08) 100%);
+  color: #5f6cff;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border: 1px solid rgba(95, 108, 255, 0.2);
+
+  &:hover {
+    background: linear-gradient(135deg, rgba(95, 108, 255, 0.18) 0%, rgba(125, 134, 255, 0.14) 100%);
+    box-shadow: 0 4px 12px rgba(95, 108, 255, 0.15);
+  }
+}
+
+.building-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  color: #94a3b8;
+  padding: 48px 16px;
+  font-size: 14px;
 }
 
 .building-hover {
   position: absolute;
-  left: calc(100% - 80px);
-  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  top: calc(100% + 12px);
   width: fit-content;
-  max-width: min(980px, calc(100vw - 48px));
+  max-width: min(600px, calc(100vw - 100px));
   min-width: 320px;
   max-height: calc(100vh - 48px);
   border-radius: 14px;
-  background: rgba(15, 23, 42, 0.94);
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.94) 0%, rgba(15, 23, 42, 0.96) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28), 0 8px 24px rgba(95, 108, 255, 0.15);
   padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  z-index: 1000;
+  z-index: 9999;
   backdrop-filter: blur(6px);
   overflow: auto;
   overscroll-behavior: contain;
@@ -179,7 +459,7 @@
 
 .building-hover.building-hover--compact {
   min-width: 320px;
-  max-width: min(660px, calc(100vw - 48px));
+  max-width: min(600px, calc(100vw - 100px));
 }
 
 .building-hover-title {
@@ -214,7 +494,7 @@
   max-width: 100%;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   padding: 8px;
   display: flex;
   flex-direction: column;
@@ -243,13 +523,9 @@
     linear-gradient(to right, rgba(148, 163, 184, 0.16) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(148, 163, 184, 0.16) 1px, transparent 1px);
   background-size: 20px 20px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   position: relative;
   overflow: hidden;
-}
-
-.bh-room {
-  padding: 10px;
 }
 
 .bh-room-world {
@@ -292,139 +568,57 @@
 
 @media (max-width: 1100px) {
   .building-hover {
-    left: 0;
+    left: 50%;
+    transform: translateX(-50%);
     top: calc(100% + 12px);
-    width: 100%;
-    max-width: none;
-    min-width: 0;
+    width: auto;
+    max-width: min(600px, calc(100vw - 100px));
   }
   .building-hover-rooms {
     grid-template-columns: 1fr;
   }
 }
 
-.building-card-tab {
-  align-self: flex-start;
-  margin: 12px 0 0 12px;
-  padding: 6px 12px;
-  background: rgba(15, 23, 42, 0.06);
-  color: #0f172a;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.02em;
-  border-radius: 6px;
-  text-transform: uppercase;
-}
-
-.building-card-body {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  gap: 12px;
-}
-
-.building-card-rooms {
-  width: 100%;
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
-}
-
-.bc-room {
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  padding: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  overflow: hidden;
-}
-
-.bc-room-name {
-  font-size: 11px;
-  font-weight: 800;
-  color: rgba(248, 250, 252, 0.9);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.bc-room-viewport {
-  width: 110px;
-  height: 64px;
-  border-radius: 10px;
-  background:
-    linear-gradient(to right, rgba(148, 163, 184, 0.14) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(148, 163, 184, 0.14) 1px, transparent 1px);
-  background-size: 20px 20px;
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  position: relative;
-  overflow: hidden;
-}
-
-.bc-room-world {
-  position: absolute;
-  inset: 0;
-  transform-origin: 0 0;
-}
-
-.bc-room-item {
-  position: absolute;
-  border-radius: 6px;
-  border: 1px solid rgba(0, 0, 0, 0.15);
-  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.14);
-}
-
-.building-card-meta {
-  margin: 0;
-  font-size: 12px;
-  color: rgba(15, 23, 42, 0.55);
-}
-
-.building-card-action {
-  border: none;
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
-  padding: 8px 16px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: background 0.15s ease;
-  &:hover {
-    background: rgba(255, 255, 255, 0.22);
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 
-.building-empty {
-  grid-column: 1 / -1;
-  text-align: center;
-  color: var(--text-muted, #888);
-  padding: 48px 16px;
-  font-size: 14px;
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /* Rooms view (inside a building) */
 .rooms-overview {
   flex: 1;
-  min-height: 280px;
+  animation: fadeIn 0.5s ease;
+  overflow: visible !important;
 }
 
 .rooms-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 28px;
   align-content: start;
+  padding: 12px;
+  overflow: visible !important;
 }
 
 .rooms-empty {
   grid-column: 1 / -1;
   text-align: center;
-  color: var(--text-muted, #888);
+  color: #94a3b8;
   padding: 48px 16px;
   font-size: 14px;
 }
@@ -432,33 +626,38 @@
 .room-tile {
   position: relative;
   height: 140px;
-  border-radius: 14px;
-  background: #f8fafc;
-  border: 2px solid #e5e7eb;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
+  border-radius: 28px !important;
+  background: white;
+  border: 1px solid rgba(95, 108, 255, 0.12);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   cursor: pointer;
-  /* IMPORTANT: allow the large hover quickview to extend outside tile */
   overflow: visible;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  display: flex;
+  flex-direction: column;
 
   &:hover {
-    border-color: #93c5fd;
-    box-shadow: 0 10px 22px rgba(37, 99, 235, 0.12);
-    /* ensure hover panel stacks above neighbors (e.g., New Room tile) */
+    border-color: rgba(95, 108, 255, 0.25);
+    box-shadow: 0 12px 32px rgba(95, 108, 255, 0.15);
+    transform: translateY(-6px);
     z-index: 200;
   }
 
   &.active {
-    border-color: #2563eb;
-    box-shadow: 0 10px 22px rgba(37, 99, 235, 0.18);
+    border-color: #5f6cff;
+    box-shadow: 0 12px 32px rgba(95, 108, 255, 0.25);
   }
 }
 
 .room-tile-surface {
   position: absolute;
   inset: 0;
-  border-radius: 14px;
-  overflow: hidden; /* keep inner surface clipped */
+  border-radius: 28px !important;
+  overflow: visible;
+  background: linear-gradient(135deg, #fafbff 0%, #f5f7ff 50%, #f8f9ff 100%);
+  display: flex;
+  flex-direction: column;
+  z-index: 1;
 }
 
 .room-tile-label {
@@ -468,10 +667,11 @@
   right: 12px;
   font-size: 13px;
   font-weight: 800;
-  color: #0f172a;
+  color: #111827;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  letter-spacing: 0.2px;
 }
 
 .room-tile-preview {
@@ -480,6 +680,89 @@
   right: 12px;
   top: 42px;
   bottom: 12px;
+}
+
+.room-tile-viewport {
+  width: 100%;
+  height: 100%;
+  border-radius: 12px;
+  background:
+    linear-gradient(to right, rgba(95, 108, 255, 0.1) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(95, 108, 255, 0.1) 1px, transparent 1px);
+  background-size: 20px 20px;
+  border: 1.5px solid rgba(95, 108, 255, 0.15);
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+  box-shadow: inset 0 1px 3px rgba(95, 108, 255, 0.05);
+}
+
+.room-tile:hover .room-tile-viewport {
+  background:
+    linear-gradient(to right, rgba(95, 108, 255, 0.15) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(95, 108, 255, 0.15) 1px, transparent 1px);
+  background-size: 20px 20px;
+  border-color: rgba(95, 108, 255, 0.25);
+  box-shadow: inset 0 2px 6px rgba(95, 108, 255, 0.1);
+}
+
+.room-tile-world {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+}
+
+.room-tile-item {
+  position: absolute;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.14);
+  transition: all 0.3s ease;
+}
+
+.room-tile:hover .room-tile-item {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16);
+}
+
+.room-hover {
+  display: none;
+  position: absolute !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  top: calc(100% + 12px) !important;
+  width: 380px !important;
+  height: 260px !important;
+  max-width: min(500px, calc(100vw - 80px)) !important;
+  overflow: hidden !important;
+  z-index: 9999 !important;
+}
+
+.room-tile:hover .room-hover {
+  display: block;
+}
+
+.room-tile-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 28px !important;
+  background: white;
+  border: 2px dashed rgba(95, 108, 255, 0.25);
+  cursor: pointer;
+  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  position: relative;
+  overflow: hidden;
+
+  &:hover {
+    border-color: rgba(95, 108, 255, 0.5);
+    background: linear-gradient(135deg, rgba(95, 108, 255, 0.08) 0%, rgba(125, 134, 255, 0.04) 100%);
+    box-shadow: 0 8px 24px rgba(95, 108, 255, 0.12);
+    transform: translateY(-4px);
+  }
+
+  &:active {
+    transform: scale(0.96);
+  }
 }
 
 .room-tile-viewport {
@@ -509,25 +792,26 @@
 }
 
 .room-hover {
-  position: absolute;
-  left: calc(100% - 38px);
-  top: 0;
-  width: 560px;
-  height: 360px;
-  min-width: 320px;
-  background: rgba(15, 23, 42, 0.94);
-  color: #f8fafc;
-  border-radius: 12px;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  backdrop-filter: blur(6px);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
-  z-index: 1000;
-  overflow: auto;
-  overscroll-behavior: contain;
+  display: none !important;
+  position: absolute !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  top: calc(100% + 12px) !important;
+  width: 380px !important;
+  height: 260px !important;
+  max-width: min(500px, calc(100vw - 80px)) !important;
+  overflow: hidden !important;
+  z-index: 9999 !important;
+  background: rgba(15, 23, 42, 0.94) !important;
+  border-radius: 12px !important;
+  border: 1px solid rgba(255, 255, 255, 0.10) !important;
+  backdrop-filter: blur(6px) !important;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28) !important;
+  flex-direction: column !important;
+}
+
+.room-tile:hover .room-hover {
+  display: flex !important;
 }
 
 .room-hover-header {
@@ -535,6 +819,9 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
+  padding: 12px;
+  padding-bottom: 8px;
+  color: #f8fafc;
 }
 
 .room-hover-title {
@@ -556,11 +843,12 @@
 .room-preview {
   flex: 1;
   min-height: 0;
+  padding: 0 12px;
 }
 
 .room-preview-viewport {
   width: 100%;
-  height: 240px;
+  height: 160px;
   border-radius: 12px;
   background:
     linear-gradient(to right, rgba(148, 163, 184, 0.18) 1px, transparent 1px),
@@ -625,9 +913,11 @@
 /* Keep preview on-screen for narrow widths */
 @media (max-width: 980px) {
   .room-hover {
-    left: 0;
-    top: calc(100% + 10px);
-    width: 100%;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    top: calc(100% + 10px) !important;
+    width: auto !important;
+    max-width: min(600px, calc(100vw - 80px)) !important;
   }
 }
 

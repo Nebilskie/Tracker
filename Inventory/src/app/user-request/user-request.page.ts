@@ -210,6 +210,23 @@ export class UserRequestPage implements OnInit, OnDestroy {
     }
   }
 
+  getStatusIcon(status: string): string {
+    switch (status) {
+      case 'new':
+        return 'document-outline';
+      case 'inprogress':
+        return 'hourglass-outline';
+      case 'completed':
+        return 'checkmark-circle-outline';
+      case 'rejected':
+        return 'close-circle-outline';
+      case 'pending':
+        return 'time-outline';
+      default:
+        return 'help-circle-outline';
+    }
+  }
+
   async addRequest() {
     if (!this.currentUser) {
       await this.showAlert('Error', 'User not logged in. Please log in first.');
