@@ -125,12 +125,21 @@ export class ItUsersPage implements OnInit, OnDestroy {
 
     const excludedKeys = new Set(['building_id', 'room_id', 'cubicle_id']);
     const keys = Object.keys(this.users[0]).filter((key) => !excludedKeys.has(key));
-    this.columns = keys.map((key) => ({
-      key,
-      label: String(key)
+    this.columns = keys.map((key) => {
+      let label = String(key)
         .replace(/_/g, ' ')
-        .replace(/\b\w/g, (chr) => chr.toUpperCase())
-    }));
+        .replace(/\b\w/g, (chr) => chr.toUpperCase());
+
+      if (key === 'building_name') {
+        label = 'Building';
+      } else if (key === 'room_name') {
+        label = 'Room';
+      } else if (key === 'cubicle_label') {
+        label = 'Cubicle';
+      }
+
+      return { key, label };
+    });
   }
 
   applySearch() {
@@ -263,10 +272,22 @@ export class ItUsersPage implements OnInit, OnDestroy {
     return this.isPasswordVisible(user) ? String(user['password'] ?? '') : '••••••••';
   }
 
+  private isValidLocationId(value: string | number | null | undefined): boolean {
+    const id = this.parseNumberOrNull(value);
+    return id != null && id > 0;
+  }
+
+  hasFullLocationAssignment(user: UserRecord | null): boolean {
+    if (!user) return false;
+    return (
+      this.isValidLocationId(user['building_id']) &&
+      this.isValidLocationId(user['room_id']) &&
+      this.isValidLocationId(user['cubicle_id'])
+    );
+  }
+
   getAssignButtonLabel(user: UserRecord): string {
-    return user['building_id'] != null && user['room_id'] != null && user['cubicle_id'] != null
-      ? 'Reassign'
-      : 'Assign';
+    return this.hasFullLocationAssignment(user) ? 'Reassign' : 'Assign';
   }
 
   startAssign(user: UserRecord): void {
@@ -514,7 +535,8 @@ export class ItUsersPage implements OnInit, OnDestroy {
         const allCubicles = res?.success && Array.isArray(res.cubicles) ? res.cubicles : [];
         this.cubicles = allCubicles.filter((cubicle: any) => {
           const assigned = cubicle?.assignedUser;
-          return assigned == null || String(assigned).trim() === '';
+          const label = String(cubicle?.label ?? '').trim();
+          return label !== '' && (assigned == null || String(assigned).trim() === '');
         });
       },
       (err) => {

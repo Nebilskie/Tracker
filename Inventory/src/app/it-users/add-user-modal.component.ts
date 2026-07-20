@@ -99,7 +99,8 @@ export class AddUserModalComponent {
         const allCubicles = res?.success && Array.isArray(res.cubicles) ? res.cubicles : [];
         this.cubicles = allCubicles.filter((cubicle: any) => {
           const assigned = cubicle?.assignedUser;
-          return assigned == null || String(assigned).trim() === '';
+          const label = String(cubicle?.label ?? '').trim();
+          return label !== '' && (assigned == null || String(assigned).trim() === '');
         });
       },
       error: (err) => {

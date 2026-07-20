@@ -4,7 +4,7 @@
       <img src="assets/logo.png" alt="HireBiz Logo" class="logo-img">
     </div>
     <div class="user-info" (click)="toggleUserMenu()">
-      <div class="header-user-location" *ngIf="isUser && userLocation && userLocation !== 'Not assigned'">
+      <div class="header-user-location" *ngIf="userLocation && userLocation !== 'Not assigned'">
         <div class="header-user-location-label">Assigned Place</div>
         <div class="header-user-location-value">{{ userLocation }}</div>
       </div>
@@ -21,7 +21,7 @@
           <div>
             <div class="menu-username">{{ userName }}</div>
             <div class="menu-role">{{ userRole }}</div>
-            <div class="menu-location" *ngIf="isUser && userLocation && userLocation !== 'Not assigned'">{{ userLocation }}</div>
+            <div class="menu-location" *ngIf="userLocation && userLocation !== 'Not assigned'">{{ userLocation }}</div>
           </div>
           <ion-icon name="close" (click)="toggleUserMenu(); $event.stopPropagation()"></ion-icon>
         </div>
