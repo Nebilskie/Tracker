@@ -1,6 +1,7 @@
 import { Component } from '@angular/core';
 import { ModalController } from '@ionic/angular';
 import { HttpClient } from '@angular/common/http';
+import { NotificationService } from '../services/notification.service';
 
 @Component({
   selector: 'app-add-item-modal',
@@ -10,7 +11,7 @@ import { HttpClient } from '@angular/common/http';
 })
 export class AddItemModalPage {
 
-  constructor(private modalCtrl: ModalController, private http: HttpClient) {}
+  constructor(private modalCtrl: ModalController, private http: HttpClient, private notification: NotificationService) {}
 
   closeModal() {
     this.modalCtrl.dismiss();
@@ -62,18 +63,18 @@ export class AddItemModalPage {
         this.http.post('/api/items/import', { csvData: normalized }).subscribe({
           next: (res: any) => {
             console.log('Import result', res);
-            alert('Import completed: ' + JSON.stringify(res));
+            this.notification.show('Import completed: ' + JSON.stringify(res));
             this.modalCtrl.dismiss();
           },
           error: (err) => {
             console.error('Import error', err);
-            alert('Import failed: ' + (err?.error?.error || err.message || err));
+            this.notification.show('Import failed: ' + (err?.error?.error || err.message || err));
           }
         });
       } catch (e) {
         console.error('CSV parse error', e);
         const msg = e instanceof Error ? e.message : String(e);
-        alert('Failed to parse CSV: ' + msg);
+        this.notification.show('Failed to parse CSV: ' + msg);
       }
     };
 

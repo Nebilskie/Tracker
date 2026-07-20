@@ -1888,11 +1888,20 @@ async function handleSaveCubicles(req, res) {
       }
     }
 
-    // 🔥 HARD CLEAN BEFORE INSERT
-    await conn.query(
-      "DELETE FROM mst_cubicles WHERE room_id = ?",
+    // 🔥 UPDATE EXISTING CUBICLES INSTEAD OF DELETING ALL ROWS
+    const [existingRows] = await conn.query(
+      "SELECT id, label, item_type FROM mst_cubicles WHERE room_id = ? AND item_type != 'room' AND (label IS NULL OR label != '__ROOM__')",
       [roomId]
     );
+
+    const existingById = new Map();
+    const existingByLabel = new Map();
+    for (const row of existingRows) {
+      const id = Number(row.id);
+      existingById.set(id, row);
+      const labelKey = String(row.label || '').trim().toLowerCase();
+      if (labelKey) existingByLabel.set(labelKey, id);
+    }
 
     // 🔥 FILTER OUT ROOM ITEMS
     const itemsToSave = floorItems.filter(
@@ -1901,10 +1910,61 @@ async function handleSaveCubicles(req, res) {
         item?.label !== "__ROOM__"
     );
 
-    // 🔥 INSERT ONLY VALID ITEMS
+    const insertItems = [];
+    const updateItems = [];
+
     for (const item of itemsToSave) {
       const itemType = (item?.type || item?.itemType || "cubicle").toLowerCase();
+      const itemId = Number(item?.id || 0);
+      const labelKey = String(item?.label || '').trim().toLowerCase();
 
+      if (itemId && existingById.has(itemId)) {
+        updateItems.push({ ...item, itemType, id: itemId });
+        existingById.delete(itemId);
+        if (labelKey) existingByLabel.delete(labelKey);
+      } else if (labelKey && existingByLabel.has(labelKey)) {
+        // Match by label when id was not provided or doesn't match
+        const existingId = existingByLabel.get(labelKey);
+        if (existingId) {
+          updateItems.push({ ...item, itemType, id: existingId });
+          existingById.delete(existingId);
+          existingByLabel.delete(labelKey);
+        } else {
+          insertItems.push({ ...item, itemType });
+        }
+      } else {
+        insertItems.push({ ...item, itemType });
+      }
+    }
+
+    const deleteIds = Array.from(existingById.keys());
+    if (deleteIds.length) {
+      await conn.query(
+        `DELETE FROM mst_cubicles WHERE id IN (?)`,
+        [deleteIds]
+      );
+    }
+
+    for (const item of updateItems) {
+      await conn.query(
+        `UPDATE mst_cubicles
+         SET label = ?, item_type = ?, x = ?, y = ?, w = ?, h = ?, created_order = ?, version = ?
+         WHERE id = ?`,
+        [
+          item?.label || null,
+          item.itemType,
+          Number(item?.x ?? 0),
+          Number(item?.y ?? 0),
+          Number(item?.w ?? 60),
+          Number(item?.h ?? 40),
+          Number(item?.createdOrder ?? item?.created_order ?? 0),
+          1,
+          item.id,
+        ]
+      );
+    }
+
+    for (const item of insertItems) {
       await conn.query(
         `INSERT INTO mst_cubicles
         (user_id, label, item_type, room_id, x, y, w, h, created_order, version)
@@ -1912,7 +1972,7 @@ async function handleSaveCubicles(req, res) {
         [
           userId,
           item?.label || null,
-          itemType,
+          item.itemType,
           roomId,
           Number(item?.x ?? 0),
           Number(item?.y ?? 0),

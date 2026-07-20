@@ -36,6 +36,16 @@ body.dark-theme {
   --ion-background-color-rgb: 12, 17, 32;
   --ion-text-color: #e7e9ff;
   --ion-text-color-rgb: 231, 233, 255;
+
+/* Custom toast styling used by NotificationService */
+.app-toast {
+  --background: #323232;
+  color: #ffffff;
+  border-radius: 8px;
+  font-weight: 500;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.28);
+}
+
   --ion-color-primary: #667eea;
   --ion-color-primary-rgb: 102, 126, 234;
   --ion-color-secondary: #a5b4fc;

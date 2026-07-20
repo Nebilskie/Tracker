@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { CommonModule } from '@angular/common';
 import { UserService } from '../services/user.service';
 import { FloorplanApiService } from '../services/floorplan-api';
+import { NotificationService } from '../services/notification.service';
 
 @Component({
   selector: 'app-add-user-modal',
@@ -30,7 +31,8 @@ export class AddUserModalComponent {
   constructor(
     private modalCtrl: ModalController,
     private userService: UserService,
-    private floorplanApi: FloorplanApiService
+    private floorplanApi: FloorplanApiService,
+    private notification: NotificationService
   ) {}
 
   async ngOnInit() {
@@ -117,17 +119,17 @@ export class AddUserModalComponent {
     const confirmPassword = String(this.confirmPassword || '');
 
     if (!username) {
-      alert('Username is required.');
+      this.notification.show('Username is required.');
       return;
     }
 
     if (!password) {
-      alert('Password is required.');
+      this.notification.show('Password is required.');
       return;
     }
 
     if (password !== confirmPassword) {
-      alert('Passwords do not match.');
+      this.notification.show('Passwords do not match.');
       return;
     }
 
@@ -156,12 +158,12 @@ export class AddUserModalComponent {
             this.modalCtrl.dismiss({ refresh: true });
           }
         } else {
-          alert(res?.error || 'Failed to create user.');
+          this.notification.show(res?.error || 'Failed to create user.');
         }
       },
       (err) => {
         console.error('Create user failed', err);
-        alert('Failed to create user.');
+        this.notification.show('Failed to create user.');
       }
     );
   }

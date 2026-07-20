@@ -1,6 +1,7 @@
 import { Component, HostListener, OnDestroy, OnInit } from '@angular/core';
 import { Subscription } from 'rxjs';
-import { ModalController } from '@ionic/angular';
+import { ModalController, AlertController } from '@ionic/angular';
+import { NotificationService } from '../services/notification.service';
 import { UserService, UserRecord } from '../services/user.service';
 import { FloorplanApiService } from '../services/floorplan-api';
 import { AddUserModalComponent } from './add-user-modal.component';
@@ -52,7 +53,9 @@ export class ItUsersPage implements OnInit, OnDestroy {
     private userService: UserService,
     private floorplanApi: FloorplanApiService,
     private modalController: ModalController,
-    private autoRefreshService: AutoRefreshService
+    private autoRefreshService: AutoRefreshService,
+    private notification: NotificationService,
+    private alertController: AlertController
   ) {}
 
   @HostListener('document:click', ['$event'])
@@ -235,7 +238,7 @@ export class ItUsersPage implements OnInit, OnDestroy {
     if (navigator.clipboard) {
       navigator.clipboard.writeText(names).then(() => console.log('copied'));
     } else {
-      alert('Clipboard API not available');
+      this.notification.show('Clipboard API not available');
     }
   }
 
@@ -303,7 +306,7 @@ export class ItUsersPage implements OnInit, OnDestroy {
     }
 
     if (!this.canSaveAssignment()) {
-      alert('Please select building, room, and cubicle before saving assignment.');
+      this.notification.show('Please select building, room, and cubicle before saving assignment.');
       return;
     }
 
@@ -321,12 +324,13 @@ export class ItUsersPage implements OnInit, OnDestroy {
     if (!this.selectedAssignmentUser) return;
 
     const username = String(this.selectedAssignmentUser['username'] || this.selectedAssignmentUser['id']);
-    const shouldRemove = confirm(
-      `Remove all location assignment for ${username}? This will clear building, room, and cubicle.`
-    );
-    if (!shouldRemove) return;
-
-    this.submitAssignment({ building_id: null, room_id: null, cubicle_id: null }, false);
+    void (async () => {
+      const shouldRemove = await this.showConfirm(
+        `Remove all location assignment for ${username}? This will clear building, room, and cubicle.`
+      );
+      if (!shouldRemove) return;
+      this.submitAssignment({ building_id: null, room_id: null, cubicle_id: null }, false);
+    })();
   }
 
   private buildAssignmentPayload(): {
@@ -369,7 +373,7 @@ export class ItUsersPage implements OnInit, OnDestroy {
         if (res?.code === 'CUBICLE_OCCUPIED' && !forceReassign) {
           this.promptForceReassign(payload, res?.conflictUser?.username || null);
         } else {
-          alert(res?.error || 'Failed to assign location');
+          this.notification.show(res?.error || 'Failed to assign location');
         }
       },
       (err) => {
@@ -378,7 +382,7 @@ export class ItUsersPage implements OnInit, OnDestroy {
           return;
         }
         console.error('Location assignment failed', err);
-        alert(err?.error?.error || 'Failed to assign location');
+        this.notification.show(err?.error?.error || 'Failed to assign location');
       }
     );
   }
@@ -391,8 +395,27 @@ export class ItUsersPage implements OnInit, OnDestroy {
       ? `This cubicle is currently assigned to ${occupantUsername}. Do you want to reassign it and remove their location assignment?`
       : 'This cubicle is currently assigned to another user. Do you want to reassign it and remove their location assignment?';
 
-    if (confirm(message)) {
-      this.submitAssignment(payload, true);
+    void (async () => {
+      const ok = await this.showConfirm(message);
+      if (ok) this.submitAssignment(payload, true);
+    })();
+  }
+
+  private async showConfirm(message: string): Promise<boolean> {
+    try {
+      const alert = await this.alertController.create({
+        header: 'Confirm',
+        message,
+        buttons: [
+          { text: 'Cancel', role: 'cancel' },
+          { text: 'OK', role: 'confirm' }
+        ]
+      });
+      await alert.present();
+      const { role } = await alert.onDidDismiss();
+      return role === 'confirm';
+    } catch (e) {
+      return false;
     }
   }
 
@@ -530,7 +553,7 @@ export class ItUsersPage implements OnInit, OnDestroy {
       try {
         const csvData = this.parseCSV(text);
         if (!csvData.length) {
-          alert('No rows found in CSV file.');
+          this.notification.show('No rows found in CSV file.');
           return;
         }
         this.userService.importUsers(csvData).subscribe(
@@ -539,17 +562,17 @@ export class ItUsersPage implements OnInit, OnDestroy {
               this.showImportStatus = `Imported ${res.imported} users.`;
               this.loadUsers();
             } else {
-              alert((res.errors && res.errors[0]) || 'Failed to import users');
+              this.notification.show((res.errors && res.errors[0]) || 'Failed to import users');
             }
           },
           (err) => {
             console.error('User import failed', err);
-            alert('Failed to import users');
+            this.notification.show('Failed to import users');
           }
         );
       } catch (err) {
         console.error('CSV parse error', err);
-        alert('Failed to parse CSV file.');
+        this.notification.show('Failed to parse CSV file.');
       }
     };
     reader.readAsText(file);

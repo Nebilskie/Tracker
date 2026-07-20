@@ -88,6 +88,10 @@ export class UserFloorplanPage implements OnInit {
     await this.loadBuildings();
   }
 
+  ionViewWillEnter() {
+    this.onSeeAllBuildings();
+  }
+
   get activeBuilding(): MstBuilding | null {
     return this.buildings.find((b) => b.id === this.activeBuildingId) ?? null;
   }
@@ -303,22 +307,40 @@ export class UserFloorplanPage implements OnInit {
 
   getInventoryTooltipLines(label: string): string[] {
     const row = this.cubicleInventory[this.normalizeCubicleLabel(label)] || {};
+    const lines: string[] = [];
 
-    const monitor = row.monitors ? String(row.monitors) : '-';
-    const headset = row.headsets ? String(row.headsets) : '-';
-    const camera = row.cameras ? String(row.cameras) : '-';
-    const mouse = row.mouse ? String(row.mouse) : '-';
-    const keyboard = row.keyboards ? String(row.keyboards) : '-';
-    const computer = row.computers ? String(row.computers) : '-';
+    const assignedUsers = String(row.assignedUsers || '').trim();
+    if (assignedUsers) {
+      lines.push(`User: ${assignedUsers}`);
+    }
 
-    return [
-      `Monitor: ${monitor}`,
-      `Headset: ${headset}`,
-      `Camera: ${camera}`,
-      `Mouse: ${mouse}`,
-      `Keyboard: ${keyboard}`,
-      `Computer: ${computer}`,
-    ];
+    if (Array.isArray(row.itemNames) && row.itemNames.length > 0) {
+      lines.push(`Items: ${row.itemNames.join(', ')}`);
+    }
+
+    const monitor = row.monitors ? Number(row.monitors) : 0;
+    const headset = row.headsets ? Number(row.headsets) : 0;
+    const camera = row.cameras ? Number(row.cameras) : 0;
+    const mouse = row.mouse ? Number(row.mouse) : 0;
+    const keyboard = row.keyboards ? Number(row.keyboards) : 0;
+    const computer = row.computers ? Number(row.computers) : 0;
+    const equipment: string[] = [];
+
+    if (monitor) equipment.push(`M:${monitor}`);
+    if (headset) equipment.push(`H:${headset}`);
+    if (mouse) equipment.push(`Mo:${mouse}`);
+    if (keyboard) equipment.push(`K:${keyboard}`);
+    if (computer) equipment.push(`PC:${computer}`);
+
+    if (equipment.length > 0) {
+      lines.push(`Inventory: ${equipment.join(' | ')}`);
+    }
+
+    if (!lines.length) {
+      lines.push('No assignment or items found');
+    }
+
+    return lines;
   }
 
   switchRoom(roomId: number) {
@@ -345,7 +367,7 @@ export class UserFloorplanPage implements OnInit {
   }
 
   onCanvasClick(_event: Event) {
-    // Read-only viewer; no canvas interaction needed.
+    this.onSeeAllBuildings();
   }
 
   
@@ -379,7 +401,7 @@ export class UserFloorplanPage implements OnInit {
 
   onRoomMouseEnter(r: BuildingRoom, ev?: MouseEvent) {
     this.hoveredRoomId = r.id;
-    this.roomHoverStyle = this.computeHoverStyle((ev?.currentTarget as HTMLElement) ?? null, { w: 560, h: 320 });
+    this.roomHoverStyle = this.computeHoverStyle((ev?.currentTarget as HTMLElement) ?? null, { w: 760, h: 460 });
   }
 
   onRoomMouseLeave() {
@@ -395,15 +417,18 @@ export class UserFloorplanPage implements OnInit {
     this.loadFloorplanFromIt();
   }
 
-  getRoomPreviewTransformForPadded(roomId: number, viewportW: number, viewportH: number, padding: number): string {
-    const p = this.getRoomPreview(roomId);
-    if (!p) return '';
-    const availW = viewportW - 2 * padding;
-    const availH = viewportH - 2 * padding;
-    const scale = Math.min(availW / p.contentW, availH / p.contentH, 1);
-    const offsetX = padding + (availW - p.contentW * scale) / 2 - p.minX * scale;
-    const offsetY = padding + (availH - p.contentH * scale) / 2 - p.minY * scale;
-    return `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
+  getRoomPreviewTransformForPadded(
+    roomId: number,
+    viewportW: number,
+    viewportH: number,
+    pad: number,
+    scaleModifier = 1,
+    verticalBias = 0
+  ): string {
+    const innerW = Math.max(1, viewportW - pad * 2);
+    const innerH = Math.max(1, viewportH - pad * 2);
+    const t = this.getRoomPreviewTransformFor(roomId, innerW, innerH, scaleModifier);
+    return `translate(${pad}px, ${pad + verticalBias}px) ${t}`;
   }
 
   private computeHoverStyle(
@@ -432,7 +457,7 @@ export class UserFloorplanPage implements OnInit {
 
     // mimic existing positioning: show to the right, slightly overlapping the card
     let left = anchorRight - 80;
-    let top = anchorTop;
+    let top = Math.max(margin, anchorTop - 16);
 
     const panelW = Math.min(approxSize.w, vw - margin * 2);
     const panelH = Math.min(approxSize.h, vh - margin * 2);
@@ -510,10 +535,10 @@ export class UserFloorplanPage implements OnInit {
     return this.roomPreviewCache.get(roomId) ?? null;
   }
 
-  getRoomPreviewTransformFor(roomId: number, viewportW: number, viewportH: number): string {
+  getRoomPreviewTransformFor(roomId: number, viewportW: number, viewportH: number, scaleModifier = 1): string {
     const p = this.getRoomPreview(roomId);
     if (!p) return '';
-    const scale = Math.min(viewportW / p.contentW, viewportH / p.contentH, 1);
+    const scale = Math.min(viewportW / p.contentW, viewportH / p.contentH, 1) * scaleModifier;
     const offsetX = (viewportW - p.contentW * scale) / 2 - p.minX * scale;
     const offsetY = (viewportH - p.contentH * scale) / 2 - p.minY * scale;
     return `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;

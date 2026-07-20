@@ -4,6 +4,7 @@ import { InventoryService, InventoryItem, InventorySummaryItem } from '../servic
 import { ItRequestService } from '../services/it-request.service';
 import { FloorplanApiService } from '../services/floorplan-api';
 import { AutoRefreshService } from '../services/auto-refresh.service';
+import { NotificationService } from '../services/notification.service';
 
 export interface ColumnDef {
   key: string;
@@ -109,7 +110,8 @@ export class ItInventoryPage implements OnInit, OnDestroy {
     private inventoryService: InventoryService,
     private itRequestService: ItRequestService,
     private floorplanApi: FloorplanApiService,
-    private autoRefreshService: AutoRefreshService
+    private autoRefreshService: AutoRefreshService,
+    private notification: NotificationService
   ) {}
 
   @HostListener('document:click', ['$event'])
@@ -434,7 +436,7 @@ export class ItInventoryPage implements OnInit, OnDestroy {
       try {
         const csvData = this.parseCSV(text);
         if (!csvData.length) {
-          alert('No rows found in the selected CSV.');
+          this.notification.show('No rows found in the selected CSV.');
           return;
         }
 
@@ -445,21 +447,21 @@ export class ItInventoryPage implements OnInit, OnDestroy {
         importOp.subscribe(
           (res) => {
             if (res && res.success) {
-              alert(`Import completed: ${res.imported} imported, ${res.skipped} skipped.`);
+              this.notification.show(`Import completed: ${res.imported} imported, ${res.skipped} skipped.`);
               this.loadAssetData();
             } else {
               const errorText = Array.isArray(res?.errors) ? res.errors.join(', ') : 'Unknown error';
-              alert(`Import failed: ${errorText}`);
+              this.notification.show(`Import failed: ${errorText}`);
             }
           },
           (err) => {
             console.error('Import error', err);
-            alert(`Import failed: ${err?.error?.error || err.message || 'Server error'}`);
+            this.notification.show(`Import failed: ${err?.error?.error || err.message || 'Server error'}`);
           }
         );
       } catch (err) {
         console.error('CSV parse error', err);
-        alert('Failed to parse CSV');
+        this.notification.show('Failed to parse CSV');
       }
     };
     reader.readAsText(file);
@@ -488,7 +490,7 @@ export class ItInventoryPage implements OnInit, OnDestroy {
     if (navigator.clipboard) {
       navigator.clipboard.writeText(names).then(() => console.log('copied'));
     } else {
-      alert('Clipboard API not available');
+      this.notification.show('Clipboard API not available');
     }
   }
 
@@ -661,19 +663,19 @@ export class ItInventoryPage implements OnInit, OnDestroy {
 
     // Validate required fields
     if (!resolvedItemType) {
-      alert('Please select or enter an item type');
+      this.notification.show('Please select or enter an item type');
       return;
     }
     if (!this.newItem.code?.trim()) {
-      alert('Please enter a code');
+      this.notification.show('Please enter a code');
       return;
     }
     if (!this.newItem.status) {
-      alert('Please select a status');
+      this.notification.show('Please select a status');
       return;
     }
     if (!this.newItem.building_id) {
-      alert('Please select a building');
+      this.notification.show('Please select a building');
       return;
     }
 
@@ -693,16 +695,16 @@ export class ItInventoryPage implements OnInit, OnDestroy {
     this.inventoryService.createItem(payload).subscribe(
       (response: any) => {
         if (response?.success) {
-          alert('Item created successfully!');
+          this.notification.show('Item created successfully!');
           this.closeAddModal();
           this.loadAssetData();
         } else {
-          alert(response?.error || 'Failed to create item');
+          this.notification.show(response?.error || 'Failed to create item');
         }
       },
       (error: any) => {
         console.error('Error creating item:', error);
-        alert('Error creating item. Please try again.');
+        this.notification.show('Error creating item. Please try again.');
       }
     );
   }

@@ -495,7 +495,7 @@ export class ItRequestPage implements OnInit, OnDestroy {
   }
 
   isItemTypeSelectable(request: RequestItem | null): boolean {
-    return !!request && (request.status === 'inprogress' || request.status === 'pending');
+    return !!request && request.status === 'inprogress';
   }
 
   shouldShowAvailability(request: RequestItem | null): boolean {

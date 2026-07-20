@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { CommonModule } from '@angular/common';
 import { FloorplanApiService } from '../../services/floorplan-api';
 import { UserService } from '../../services/user.service';
+import { NotificationService } from '../../services/notification.service';
 
 type RoomOption = { id: number; name: string };
 
@@ -45,7 +46,8 @@ export class SubmitRequestModalComponent implements OnInit {
   constructor(
     private modalController: ModalController,
     private floorplanApi: FloorplanApiService,
-    private userService: UserService
+    private userService: UserService,
+    private notification: NotificationService
   ) {}
 
   async ngOnInit() {
@@ -166,22 +168,22 @@ export class SubmitRequestModalComponent implements OnInit {
 
   submit() {
     if (this.assignedLocation.buildingId == null || !this.assignedLocation.buildingName) {
-      alert('No building has been assigned by IT admin yet.');
+      this.notification.show('No building has been assigned by IT admin yet.');
       return;
     }
 
     if (this.assignedLocation.roomId == null || !this.assignedLocation.roomName) {
-      alert('No room has been assigned by IT admin yet.');
+      this.notification.show('No room has been assigned by IT admin yet.');
       return;
     }
 
     if (this.assignedLocation.cubicleId == null || !this.assignedLocation.cubicleLabel) {
-      alert('No cubicle has been assigned by IT admin yet.');
+      this.notification.show('No cubicle has been assigned by IT admin yet.');
       return;
     }
 
     if (!this.peripheral) {
-      alert('Please select a Peripheral');
+      this.notification.show('Please select a Peripheral');
       return;
     }
 

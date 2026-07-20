@@ -195,7 +195,7 @@
         {{ selectedRequest.rejectedReason || 'No rejection reason provided' }}
       </div>
 
-      <div class="item-type-row" *ngIf="isItemTypeSelectable(selectedRequest)">
+      <div class="item-type-row" *ngIf="selectedRequest?.status === 'inprogress'">
         <label class="item-type-label" for="item-type-select">
           Available {{ extractRequestedItemName(selectedRequest.title) }} items
         </label>

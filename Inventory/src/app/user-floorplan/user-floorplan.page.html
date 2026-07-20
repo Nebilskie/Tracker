@@ -110,8 +110,8 @@
               <div class="bh-room" *ngFor="let r of getBuildingRooms(b.id) | slice:0:6">
                 <div class="bh-room-name">{{ r.room_name }}</div>
                 <div class="bh-room-preview">
-                  <div class="bh-room-viewport">
-                    <div class="bh-room-world" [style.transform]="getRoomPreviewTransformForPadded(r.id, 420, 180, 16)">
+                  <div class="bh-room-viewport" #bhRoomViewport>
+                    <div class="bh-room-world" [style.transform]="getRoomPreviewTransformForPadded(r.id, bhRoomViewport.offsetWidth, bhRoomViewport.offsetHeight, 16, 1.0, 0)">
                       <div
                         class="bh-room-item"
                         *ngFor="let it of (getRoomPreview(r.id)?.items || [])"
@@ -159,8 +159,8 @@
             <div class="room-tile-label">{{ r.room_name }}</div>
 
             <div class="room-tile-preview">
-              <div class="room-tile-viewport">
-                <div class="room-tile-world" [style.transform]="getRoomPreviewTransformFor(r.id, 140, 86)">
+              <div class="room-tile-viewport" #roomTileViewport>
+                <div class="room-tile-world" [style.transform]="getRoomPreviewTransformFor(r.id, roomTileViewport.offsetWidth, roomTileViewport.offsetHeight, 0.8)">
                   <div
                     class="room-tile-item"
                     *ngFor="let it of (getRoomPreview(r.id)?.items || [])"
@@ -171,7 +171,11 @@
                       height: it.h + 'px',
                       background: it.color
                     }"
-                  ></div>
+                  >
+                    <span *ngIf="it.type === 'cubicle' && it.label" class="room-tile-item-label">
+                      {{ it.label }}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -187,10 +191,10 @@
             </div>
 
             <div class="room-preview">
-              <div class="room-preview-viewport">
+              <div class="room-preview-viewport" #roomHoverViewport>
                 <div
                   class="room-preview-world"
-                  [style.transform]="getRoomPreviewTransformForPadded(r.id, 520, 240, 16)"
+                  [style.transform]="getRoomPreviewTransformForPadded(r.id, roomHoverViewport.offsetWidth, roomHoverViewport.offsetHeight, 16, 0.95, 0)"
                 >
                   <div
                     class="room-preview-item"

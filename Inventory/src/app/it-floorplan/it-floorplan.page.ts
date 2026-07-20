@@ -7,6 +7,7 @@ import {
   ChangeDetectorRef
 } from '@angular/core';
 import { AlertController } from '@ionic/angular';
+import { NotificationService } from '../services/notification.service';
 import { firstValueFrom } from 'rxjs';
 import { Preferences } from '@capacitor/preferences';
 import { FloorplanApiService, FloorplanLayout } from '../services/floorplan-api';
@@ -213,7 +214,8 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
   constructor(
     private floorplanApi: FloorplanApiService,
     private cdr: ChangeDetectorRef,
-    private alertController: AlertController
+    private alertController: AlertController,
+    private notification: NotificationService
   ) {}
 
   async ngOnInit() {
@@ -221,6 +223,9 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
     this.userId = await this.getCurrentUserId();
     await this.loadBuildingsFromApi();
     await this.warmBuildingPreviews();
+
+    // Always start from the buildings overview when opening the floorplan page.
+    this.onSeeAllBuildings();
 
     // Restore last view (buildings/rooms/canvas) when returning to this page.
     const [{ value: savedView }, { value: savedBid }, { value: savedRid }] =
@@ -269,6 +274,10 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
     }
 
     window.addEventListener('keydown', this.handleKeyDelete);
+  }
+
+  ionViewWillEnter() {
+    this.onSeeAllBuildings();
   }
 
   get activeBuilding(): MstBuilding | null {
@@ -707,10 +716,10 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
     return this.getRoomPreviewTransformFor(roomId, 360, 220);
   }
 
-  getRoomPreviewTransformFor(roomId: number, viewportW: number, viewportH: number): string {
+  getRoomPreviewTransformFor(roomId: number, viewportW: number, viewportH: number, scaleModifier = 1): string {
     const p = this.getRoomPreview(roomId);
     if (!p) return '';
-    const scale = Math.min(viewportW / p.contentW, viewportH / p.contentH, 1);
+    const scale = Math.min(viewportW / p.contentW, viewportH / p.contentH, 1) * scaleModifier;
     const offsetX = (viewportW - p.contentW * scale) / 2 - p.minX * scale;
     const offsetY = (viewportH - p.contentH * scale) / 2 - p.minY * scale;
     return `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
@@ -720,11 +729,12 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
     roomId: number,
     viewportW: number,
     viewportH: number,
-    pad: number
+    pad: number,
+    scaleModifier = 1
   ): string {
     const innerW = Math.max(1, viewportW - pad * 2);
     const innerH = Math.max(1, viewportH - pad * 2);
-    const t = this.getRoomPreviewTransformFor(roomId, innerW, innerH);
+    const t = this.getRoomPreviewTransformFor(roomId, innerW, innerH, scaleModifier);
     return `translate(${pad}px, ${pad}px) ${t}`;
   }
 
@@ -1081,12 +1091,12 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
   }
 
   performTransfer() {
-    if (!this.transferFromCubicleId) return alert('Choose a source cubicle');
-    if (!this.transferToCubicleId) return alert('Choose a target cubicle');
+    if (!this.transferFromCubicleId) { this.notification.show('Choose a source cubicle'); return; }
+    if (!this.transferToCubicleId) { this.notification.show('Choose a target cubicle'); return; }
 
     const source = this.availableCubicles.find((c) => Number(c.id) === Number(this.transferFromCubicleId));
     const fromLabel = source ? String(source.label || '') : null;
-    if (!fromLabel) return alert('Invalid source selection');
+    if (!fromLabel) { this.notification.show('Invalid source selection'); return; }
 
     const payload: any = {
       roomId: this.roomId,
@@ -1098,8 +1108,8 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
 
     this.floorplanApi.transferItems(payload).subscribe({
       next: (res: any) => {
-        if (!res?.success) return alert(res?.error || 'Transfer failed');
-        alert('Transfer complete');
+        if (!res?.success) { this.notification.show(res?.error || 'Transfer failed'); return; }
+        this.notification.show('Transfer complete');
         this.cancelTransfer();
         if (this.roomId) this.refreshInventoryFromServer(this.roomId);
         // refresh previews and floorplan
@@ -1107,7 +1117,7 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
       },
       error: (err) => {
         console.error('Transfer failed', err);
-        alert('Transfer failed');
+        this.notification.show('Transfer failed');
       }
     });
   }
