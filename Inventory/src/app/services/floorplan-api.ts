@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import { environment } from '../../environments/environment';
 
 export type FloorplanLayout = {
   cubicles: any[];
@@ -8,7 +9,7 @@ export type FloorplanLayout = {
 
 @Injectable({ providedIn: 'root' })
 export class FloorplanApiService {
-  private baseUrl = 'http://localhost:3000';
+  private baseUrl = environment.apiRoot;
 
   constructor(private http: HttpClient) {}
 

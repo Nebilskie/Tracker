@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import { environment } from '../../environments/environment';
 
 export interface InventoryItem {
   id?: number;
@@ -33,7 +34,7 @@ export interface InventorySummaryItem {
 
 @Injectable({ providedIn: 'root' })
 export class InventoryService {
-  private apiBase = 'http://localhost:3000/api';
+  private apiBase = environment.apiBase;
 
   constructor(private http: HttpClient) {}
 

@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import { environment } from '../../environments/environment';
 
 export interface UserRecord {
   [key: string]: any;
@@ -8,7 +9,7 @@ export interface UserRecord {
 
 @Injectable({ providedIn: 'root' })
 export class UserService {
-  private apiBase = 'http://localhost:3000/api';
+  private apiBase = environment.apiBase;
 
   constructor(private http: HttpClient) {}
 

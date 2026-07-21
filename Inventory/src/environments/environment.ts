@@ -2,8 +2,14 @@
 // `ng build` replaces `environment.ts` with `environment.prod.ts`.
 // The list of file replacements can be found in `angular.json`.
 
+const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+const protocol = typeof window !== 'undefined' ? window.location.protocol : 'http:';
+const basePort = 3000;
+
 export const environment = {
-  production: false
+  production: false,
+  apiRoot: `${protocol}//${host}:${basePort}`,
+  apiBase: `${protocol}//${host}:${basePort}/api`
 };
 
 /*

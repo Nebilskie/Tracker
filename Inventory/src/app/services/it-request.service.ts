@@ -3,6 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { tap, catchError } from 'rxjs/operators';
 import { of } from 'rxjs';
+import { environment } from '../../environments/environment';
 
 export interface ITRequest {
   id?: number;
@@ -20,7 +21,7 @@ export interface ITRequest {
   providedIn: 'root'
 })
 export class ItRequestService {
-  private apiUrl = 'http://localhost:3000/api/it-requests';
+  private apiUrl = `${environment.apiBase}/it-requests`;
 
   constructor(private http: HttpClient) {}
 

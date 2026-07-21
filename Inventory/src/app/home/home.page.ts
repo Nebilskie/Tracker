@@ -1,6 +1,7 @@
 import { Component } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
+import { environment } from '../../environments/environment';
 
 @Component({
   selector: 'app-home',
@@ -33,7 +34,7 @@ export class HomePage {
     this.isLoading = true;
     this.errorMessage = '';
 
-    this.http.post<any>('http://localhost:3000/login', {
+    this.http.post<any>(`${environment.apiRoot}/login`, {
       username: this.username,
       password: this.password
     }).subscribe({

@@ -3703,11 +3703,25 @@ app.put('/api/it-requests/:id/item-type', async (req, res) => {
     await initializeTables();
 
     const PORT = process.env.PORT || 3000;
+    const HOST = process.env.HOST || '0.0.0.0';
+    const advertisedHost = HOST === '0.0.0.0' ? '192.168.100.173' : HOST;
 
-    app.listen(PORT, () => {
-      console.log(`🚀 Server running on http://localhost:${PORT}`);
+    app.listen(PORT, HOST, () => {
+      console.log(`🚀 Server running on http://${advertisedHost}:${PORT}`);
     });
   } catch (e) {
+    const dbHost = process.env.DB_HOST || '192.168.88.87';
+    const dbPort = process.env.DB_PORT || '3306';
+    const dbName = process.env.DB_NAME || 'tracker';
+    const dbUser = process.env.DB_USER || 'ezware1';
+
+    console.error(`❌ Server startup failed. Database connection details:`);
+    console.error(`   DB_HOST=${dbHost}`);
+    console.error(`   DB_PORT=${dbPort}`);
+    console.error(`   DB_NAME=${dbName}`);
+    console.error(`   DB_USER=${dbUser}`);
+    console.error(`
+   Confirm the MySQL host is reachable and accepts remote connections from this machine.`);
     console.error(e);
     process.exit(1);
   }

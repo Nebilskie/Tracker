@@ -5,6 +5,7 @@ import { Subscription } from 'rxjs';
 import { ChartConfiguration } from 'chart.js';
 import { InventoryItem, InventoryService } from '../services/inventory.service';
 import { AutoRefreshService } from '../services/auto-refresh.service';
+import { environment } from '../../environments/environment';
 
 interface UserData {
   id?: number;
@@ -193,7 +194,7 @@ export class ItHomePage implements OnInit, OnDestroy {
    * Load activities and automatically update request counts
    */
   loadActivitiesAndCounts() {
-    this.http.get<any>('http://localhost:3000/api/it-requests').subscribe(
+    this.http.get<any>(`${environment.apiBase}/it-requests`).subscribe(
       (response) => {
         if (response.success && Array.isArray(response.requests)) {
           const requests = response.requests;
