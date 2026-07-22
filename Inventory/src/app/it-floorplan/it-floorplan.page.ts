@@ -314,6 +314,8 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
   }
 
   onBuildingMouseEnter(b: MstBuilding, ev?: MouseEvent) {
+    this.cancelScheduledHoverClose();
+    this.hoveredRoomId = null;
     this.hoveredBuildingId = b.id;
     void this.ensureBuildingRooms(b.id);
     this.buildingHoverStyle = this.computeHoverStyle(
