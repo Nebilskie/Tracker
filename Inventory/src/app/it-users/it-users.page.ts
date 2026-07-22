@@ -477,7 +477,7 @@ export class ItUsersPage implements OnInit, OnDestroy {
     const userId = await this.getCurrentUserId();
     this.floorplanApi.listBuildings(userId ?? undefined).subscribe(
       (res) => {
-        this.buildings = res?.success && Array.isArray(res.buildings) ? res.buildings : [];
+        this.buildings = res?.success && Array.isArray(res.buildings) ? res.buildings.filter((b: any) => String(b.building_name || '').trim().toLowerCase() !== 'storage') : [];
       },
       (err) => {
         console.error('Failed to load buildings', err);

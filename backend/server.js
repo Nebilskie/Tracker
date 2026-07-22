@@ -2531,14 +2531,35 @@ app.get('/api/rooms/:roomId/cubicles', async (req, res) => {
 
 // Transfer items between cubicles in the same room
 app.post('/api/transfer-items', async (req, res) => {
-  const { roomId, fromLabel, toCubicleId, itemTypes, transferAssignedUser } = req.body || {};
+  const { roomId: roomIdParam, fromLabel, toCubicleId, transferTargetBuildingId, itemTypes, itemCodes, transferAssignedUser, transferOnlyUser } = req.body || {};
+  console.log('/api/transfer-items payload:', { roomIdParam, fromLabel, toCubicleId, transferTargetBuildingId, itemTypes, itemCodes, transferAssignedUser });
   const moveAssignedUser = Boolean(transferAssignedUser);
+  const selectedItemCodes = Array.isArray(itemCodes)
+    ? itemCodes.map((c) => String(c || '').trim()).filter((c) => c !== '')
+    : [];
 
-  if (!roomId) return res.status(400).json({ success: false, error: 'roomId required' });
-  if (!fromLabel || !toCubicleId) return res.status(400).json({ success: false, error: 'fromLabel and toCubicleId required' });
+  if (!roomIdParam) return res.status(400).json({ success: false, error: 'roomId required' });
+  if (!fromLabel) return res.status(400).json({ success: false, error: 'fromLabel required' });
+  if (!toCubicleId && !transferTargetBuildingId) return res.status(400).json({ success: false, error: 'toCubicleId or transferTargetBuildingId required' });
 
   const conn = await pool.getConnection();
   try {
+    let roomId = null;
+    const roomIdRaw = String(roomIdParam || '').trim();
+    if (/^\d+$/.test(roomIdRaw)) {
+      roomId = Number(roomIdRaw);
+    } else {
+      const [roomRows] = await conn.query(
+        'SELECT id FROM mst_room WHERE LOWER(TRIM(room_name)) = LOWER(TRIM(?)) LIMIT 1',
+        [roomIdRaw]
+      );
+      if (!roomRows.length) {
+        await conn.rollback();
+        return res.status(404).json({ success: false, error: 'Room not found' });
+      }
+      roomId = Number(roomRows[0].id);
+    }
+
     await conn.beginTransaction();
 
     // resolve source cubicle id and assigned user
@@ -2553,54 +2574,150 @@ app.post('/api/transfer-items', async (req, res) => {
     const fromCubicleId = Number(fromRows[0].id);
     const sourceAssignedUser = fromRows[0].user_id || null;
 
-    // validate target cubicle belongs to room
-    const [toRows] = await conn.query('SELECT id, room_id FROM mst_cubicles WHERE id = ? AND room_id = ? LIMIT 1', [toCubicleId, roomId]);
-    if (!toRows.length) {
-      await conn.rollback();
-      return res.status(404).json({ success: false, error: 'Target cubicle not found in room' });
-    }
-    const targetRoomId = Number(toRows[0].room_id);
+    // validate target cubicle exists and resolve its room/building when provided
+    let targetRoomId = null;
+    let targetBuildingId = null;
+    let targetCubicleId = toCubicleId;
+    if (targetCubicleId) {
+      const [toRows] = await conn.query('SELECT id, room_id FROM mst_cubicles WHERE id = ? LIMIT 1', [targetCubicleId]);
+      if (!toRows.length) {
+        await conn.rollback();
+        return res.status(404).json({ success: false, error: 'Target cubicle not found' });
+      }
+      targetRoomId = Number(toRows[0].room_id);
 
-    const [roomRows] = await conn.query('SELECT building_id FROM mst_room WHERE id = ? LIMIT 1', [targetRoomId]);
-    const targetBuildingId = roomRows.length ? roomRows[0].building_id || null : null;
-
-    // find item codes that will be moved
-    let selectSql = 'SELECT code FROM mst_item WHERE room_id = ? AND cubicle_id = ?';
-    const params = [roomId, fromCubicleId];
-    if (Array.isArray(itemTypes) && itemTypes.length) {
-      const placeholders = itemTypes.map(() => '?').join(',');
-      selectSql += ` AND LOWER(item_type) IN (${placeholders})`;
-      params.push(...itemTypes.map((t) => String(t).toLowerCase()));
+      const [roomRows] = await conn.query('SELECT building_id FROM mst_room WHERE id = ? LIMIT 1', [targetRoomId]);
+      targetBuildingId = roomRows.length ? roomRows[0].building_id || null : null;
+    } else if (transferTargetBuildingId) {
+      // when transferring to a building directly (eg. storage), resolve building id
+      targetBuildingId = Number(transferTargetBuildingId);
+      targetRoomId = null;
+      targetCubicleId = null;
     }
-    const [toMoveRows] = await conn.query(selectSql, params);
+
+    // If moving assigned user to a specific cubicle, ensure target cubicle is not already occupied
+    if (moveAssignedUser && targetCubicleId) {
+      const [tcu] = await conn.query('SELECT user_id FROM mst_cubicles WHERE id = ? LIMIT 1', [targetCubicleId]);
+      if (tcu.length && tcu[0].user_id) {
+        await conn.rollback();
+        return res.status(409).json({ success: false, code: 'CUBICLE_OCCUPIED', error: 'Target cubicle already has an assigned user' });
+      }
+    }
+
+    if (transferOnlyUser) {
+      if (!moveAssignedUser) {
+        await conn.rollback();
+        return res.status(400).json({ success: false, error: 'User-only transfer requires assigned user transfer' });
+      }
+      if (selectedItemCodes.length || (Array.isArray(itemTypes) && itemTypes.length)) {
+        await conn.rollback();
+        return res.status(400).json({ success: false, error: 'User-only transfer cannot include item selection' });
+      }
+    }
+
+    // find item codes that will be moved (unless this is a user-only transfer)
+    let toMoveRows = [];
+    if (!transferOnlyUser) {
+      let selectSql = 'SELECT code FROM mst_item WHERE room_id = ? AND cubicle_id = ?';
+      const params = [roomId, fromCubicleId];
+      if (selectedItemCodes.length) {
+        const placeholders = selectedItemCodes.map(() => '?').join(',');
+        selectSql += ` AND LOWER(code) IN (${placeholders})`;
+        params.push(...selectedItemCodes.map((c) => c.toLowerCase()));
+      } else if (Array.isArray(itemTypes) && itemTypes.length) {
+        const placeholders = itemTypes.map(() => '?').join(',');
+        selectSql += ` AND LOWER(item_type) IN (${placeholders})`;
+        params.push(...itemTypes.map((t) => String(t).toLowerCase()));
+      }
+      const [rows] = await conn.query(selectSql, params);
+      toMoveRows = rows;
+    }
 
     // perform update to reassign items
-    let updateSql = 'UPDATE mst_item SET cubicle_id = ?, room_id = ?, building_id = ? WHERE room_id = ? AND cubicle_id = ?';
-    const updateParams = [toCubicleId, targetRoomId, targetBuildingId, roomId, fromCubicleId];
-    if (Array.isArray(itemTypes) && itemTypes.length) {
+    let updateSql = '';
+    const updateParams = [];
+
+    // Special-case: moving to a building directly (storage). Set room/cubicle to NULL and set building_id
+    const storageMove = !targetCubicleId && targetBuildingId != null;
+    // Do not allow moving an assigned user to storage
+    if (moveAssignedUser && storageMove) {
+      await conn.rollback();
+      return res.status(400).json({ success: false, error: 'Cannot transfer assigned user to storage' });
+    }
+    if (storageMove) {
+      const hasLocation = await hasColumn(conn, 'mst_item', 'location');
+      const setParts = [];
+      const paramsForSet = [];
+
+      // set building id
+      setParts.push('building_id = ?');
+      paramsForSet.push(targetBuildingId);
+
+      // clear room and cubicle
+      setParts.push('room_id = NULL');
+      setParts.push('cubicle_id = NULL');
+
+      if (hasLocation) {
+        setParts.push("location = 'storage'");
+      }
+
+      // set status to available (1)
+      setParts.push('status = ?');
+      paramsForSet.push(1);
+
+      // last update timestamp
+      setParts.push('last_update = CURRENT_TIMESTAMP');
+
+      updateSql = `UPDATE mst_item SET ${setParts.join(', ')} WHERE room_id = ? AND cubicle_id = ?`;
+      updateParams.push(...paramsForSet, roomId, fromCubicleId);
+    } else {
+      updateSql = 'UPDATE mst_item SET cubicle_id = ?, room_id = ?, building_id = ? WHERE room_id = ? AND cubicle_id = ?';
+      updateParams.push(targetCubicleId, targetRoomId, targetBuildingId, roomId, fromCubicleId);
+    }
+    if (selectedItemCodes.length) {
+      const placeholders = selectedItemCodes.map(() => '?').join(',');
+      updateSql += ` AND LOWER(code) IN (${placeholders})`;
+      updateParams.push(...selectedItemCodes.map((c) => c.toLowerCase()));
+    } else if (Array.isArray(itemTypes) && itemTypes.length) {
       const placeholders = itemTypes.map(() => '?').join(',');
       updateSql += ` AND LOWER(item_type) IN (${placeholders})`;
       updateParams.push(...itemTypes.map((t) => String(t).toLowerCase()));
     }
 
-    await conn.query(updateSql, updateParams);
+    // perform item update only when not user-only transfer
+    if (!transferOnlyUser) {
+      await conn.query(updateSql, updateParams);
+    }
 
     if (moveAssignedUser) {
-      await conn.query(
-        'UPDATE mst_users SET cubicle_id = ?, room_id = ?, building_id = ? WHERE cubicle_id = ?',
-        [toCubicleId, targetRoomId, targetBuildingId, fromCubicleId]
-      );
-      if (sourceAssignedUser) {
-        await conn.query('UPDATE mst_cubicles SET user_id = ? WHERE id = ?', [sourceAssignedUser, toCubicleId]);
-        await conn.query('UPDATE mst_cubicles SET user_id = NULL WHERE id = ?', [fromCubicleId]);
+      if (storageMove) {
+        // clear cubicle assignment and move user to building-level storage
+        await conn.query(
+          'UPDATE mst_users SET cubicle_id = NULL, room_id = NULL, building_id = ? WHERE cubicle_id = ?',
+          [targetBuildingId, fromCubicleId]
+        );
+        if (sourceAssignedUser) {
+          await conn.query('UPDATE mst_cubicles SET user_id = NULL WHERE id = ?', [fromCubicleId]);
+        }
+      } else {
+        await conn.query(
+          'UPDATE mst_users SET cubicle_id = ?, room_id = ?, building_id = ? WHERE cubicle_id = ?',
+          [targetCubicleId, targetRoomId, targetBuildingId, fromCubicleId]
+        );
+        if (sourceAssignedUser) {
+          await conn.query('UPDATE mst_cubicles SET user_id = ? WHERE id = ?', [sourceAssignedUser, targetCubicleId]);
+          await conn.query('UPDATE mst_cubicles SET user_id = NULL WHERE id = ?', [fromCubicleId]);
+        }
       }
     }
 
-    // update location text for moved items
+    // update location text for moved items (skip for storageMove since we already set location)
     if (Array.isArray(toMoveRows) && toMoveRows.length) {
       for (const r of toMoveRows) {
         try {
-          await updateItemLocation(conn, 'mst_item', r.code);
+          if (!storageMove) {
+            await updateItemLocation(conn, 'mst_item', r.code);
+          }
         } catch (e) {
           console.warn('Failed updating item location for', r.code, e);
         }
@@ -2612,7 +2729,9 @@ app.post('/api/transfer-items', async (req, res) => {
   } catch (e) {
     await conn.rollback();
     console.error('❌ /api/transfer-items error', e);
-    return res.status(500).json({ success: false, error: 'Server error transferring items' });
+    // Return error message for debugging (can be removed later)
+    const msg = e && e.message ? String(e.message) : 'Server error transferring items';
+    return res.status(500).json({ success: false, error: msg });
   } finally {
     conn.release();
   }

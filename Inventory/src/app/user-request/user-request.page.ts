@@ -11,6 +11,10 @@ interface RequestItem {
   ownerInitials: string;
   username?: string;
   reason?: string;
+  rejectedReason?: string;
+  inventoryItemName?: string | null;
+  previousInventoryItemName?: string | null;
+  completedItemName?: string;
   status: 'new' | 'inprogress' | 'completed' | 'rejected' | 'pending';
   time: string;
   date: string;
@@ -102,6 +106,10 @@ export class UserRequestPage implements OnInit, OnDestroy {
                 ownerInitials: this.getInitials(req.username),
                 username: req.username,
                 reason: req.reason || '',
+                rejectedReason: req.rejected_reason || '',
+                inventoryItemName: req.inventory_item_name || null,
+                previousInventoryItemName: req.previous_inventory_item_name || null,
+                completedItemName: String(req.inventory_item_name || req.previous_inventory_item_name || '').trim(),
                 status: this.mapStatus(req.status),
                 time: new Date(req.created_at).toLocaleTimeString([], {
                   hour: '2-digit',
@@ -120,7 +128,7 @@ export class UserRequestPage implements OnInit, OnDestroy {
                 pendingAt: req.pending_at
                   ? new Date(req.pending_at).toLocaleString()
                   : undefined,
-                rejectedFrom: req.rejected_from || null
+                rejectedFrom: req.rejected_from === 'I' ? 'inprogress' : req.rejected_from === 'N' ? 'new' : req.rejected_from || null
               }));
 
             console.log('My requests loaded:', this.requests.length);
@@ -225,6 +233,27 @@ export class UserRequestPage implements OnInit, OnDestroy {
       default:
         return 'help-circle-outline';
     }
+  }
+
+  getCompletedItemName(request: RequestItem | null): string {
+    if (!request) return '';
+    return String(request.completedItemName || '').trim();
+  }
+
+  getRequestDisplayTitle(request: RequestItem | null): string {
+    if (!request) return '';
+    const title = String(request.title || '').trim();
+    const completedName = this.getCompletedItemName(request);
+    if (request.status === 'completed' && completedName) {
+      const match = title.match(/^\s*(\S+)(.*)$/);
+      if (match) {
+        const first = match[1];
+        const rest = match[2].trim();
+        return rest ? `${first}(${completedName}) ${rest}` : `${first}(${completedName})`;
+      }
+      return `${title}(${completedName})`;
+    }
+    return title;
   }
 
   async addRequest() {

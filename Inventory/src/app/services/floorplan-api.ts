@@ -80,7 +80,7 @@ export class FloorplanApiService {
     return this.http.get(`${this.baseUrl}/api/items/types`);
   }
 
-  transferItems(payload: { roomId: string | number; fromLabel: string; toCubicleId: number; itemTypes?: string[]; transferAssignedUser?: boolean }): Observable<any> {
+  transferItems(payload: { roomId: string | number; fromLabel: string; toCubicleId?: number | null; transferTargetBuildingId?: number | null; itemTypes?: string[]; itemCodes?: string[]; transferAssignedUser?: boolean }): Observable<any> {
     return this.http.post(`${this.baseUrl}/api/transfer-items`, payload);
   }
 }

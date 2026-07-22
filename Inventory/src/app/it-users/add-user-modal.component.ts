@@ -58,7 +58,7 @@ export class AddUserModalComponent {
     const userId = await this.getCurrentUserId();
     this.floorplanApi.listBuildings(userId ?? undefined).subscribe({
       next: (res: any) => {
-        this.buildings = res?.success && Array.isArray(res.buildings) ? res.buildings : [];
+        this.buildings = res?.success && Array.isArray(res.buildings) ? res.buildings.filter((b: any) => String(b.building_name || '').trim().toLowerCase() !== 'storage') : [];
       },
       error: (err) => {
         console.error('Failed to load buildings', err);

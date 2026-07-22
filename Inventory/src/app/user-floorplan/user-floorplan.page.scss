@@ -476,12 +476,9 @@
   animation: slideDown 0.5s ease;
 }
 
-/* Override building hover to position below and show properly */
+/* Override building hover to let JS place it safely inside the content area */
 .building-hover {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  top: calc(100% + 12px);
+  position: fixed;
   width: fit-content;
   max-width: min(600px, calc(100vw - 100px));
   z-index: 9999;
@@ -519,7 +516,6 @@
   &:hover {
     border-color: rgba(95, 108, 255, 0.25);
     box-shadow: 0 12px 32px rgba(95, 108, 255, 0.15);
-    transform: translateY(-6px);
     z-index: 200;
   }
 
@@ -626,7 +622,6 @@
 .room-hover {
   display: flex;
   position: fixed !important;
-  transform: none !important;
   overflow: hidden !important;
   z-index: 1000000 !important;
 }

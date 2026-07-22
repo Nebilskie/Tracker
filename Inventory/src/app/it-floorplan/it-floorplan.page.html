@@ -110,61 +110,94 @@
             </div>
           </div>
 
-          <div
-            class="building-hover"
-            *ngIf="hoveredBuildingId === b.id"
-            [class.building-hover--compact]="getBuildingRooms(b.id).length === 0"
-            [ngStyle]="buildingHoverStyle"
-            (click)="selectBuilding(b)"
-            role="button"
-            tabindex="0"
-            (keyup.enter)="selectBuilding(b)"
-          >
-            <div class="building-hover-title">{{ b.building_name }}</div>
-
-            <div class="building-hover-loading" *ngIf="buildingRoomsLoadingId === b.id">
-              Loading rooms…
-            </div>
-
-            <div class="building-hover-empty" *ngIf="buildingRoomsLoadingId !== b.id && getBuildingRooms(b.id).length === 0">
-              No&nbsp;rooms&nbsp;yet
-            </div>
-
-            <div class="building-hover-rooms" *ngIf="getBuildingRooms(b.id).length > 0">
-              <div class="bh-room" *ngFor="let r of getBuildingRooms(b.id) | slice:0:6">
-                <div class="bh-room-name">{{ r.room_name }}</div>
-                <div class="bh-room-preview">
-                  <div class="bh-room-viewport" #bhRoomViewport>
-                    <div class="bh-room-world" [style.transform]="getRoomPreviewTransformForPadded(r.id, bhRoomViewport.offsetWidth, bhRoomViewport.offsetHeight, 16)">
-                      <div
-                        class="bh-room-item"
-                        *ngFor="let it of (getRoomPreview(r.id)?.items || [])"
-                        [class.item-cubicle]="it.type === 'cubicle'"
-                        [ngStyle]="{
-                          left: it.x + 'px',
-                          top: it.y + 'px',
-                          width: it.w + 'px',
-                          height: it.h + 'px',
-                          background: it.color
-                        }"
-                      >
-                        <span *ngIf="it.type === 'cubicle'" class="bh-room-label">{{ it.label }}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div class="bh-room-stats">Cubicles: {{ r.cubicles || 0 }}</div>
-              </div>
-            </div>
-
-            <div class="building-hover-foot" *ngIf="getBuildingRooms(b.id).length > 6">
-              +{{ getBuildingRooms(b.id).length - 6 }} more rooms…
-            </div>
-          </div>
         </div>
         <p *ngIf="filteredBuildings.length === 0" class="building-empty">
           No buildings to show. Add one with <b>New Building</b> below.
         </p>
+      </div>
+    </div>
+
+    <div *ngIf="hoveredBuilding && !showFloorCanvas" class="building-hover" [class.building-hover--compact]="getBuildingRooms(hoveredBuilding.id).length === 0" [ngStyle]="buildingHoverStyle" (click)="selectBuilding(hoveredBuilding)" role="button" tabindex="0" (keyup.enter)="selectBuilding(hoveredBuilding)">
+      <div class="building-hover-title">{{ hoveredBuilding.building_name }}</div>
+
+      <div class="building-hover-loading" *ngIf="buildingRoomsLoadingId === hoveredBuilding.id">
+        Loading rooms…
+      </div>
+
+      <div class="building-hover-empty" *ngIf="buildingRoomsLoadingId !== hoveredBuilding.id && getBuildingRooms(hoveredBuilding.id).length === 0">
+        No&nbsp;rooms&nbsp;yet
+      </div>
+
+      <div class="building-hover-rooms" *ngIf="getBuildingRooms(hoveredBuilding.id).length > 0">
+        <div class="bh-room" *ngFor="let r of getBuildingRooms(hoveredBuilding.id) | slice:0:6">
+          <div class="bh-room-name">{{ r.room_name }}</div>
+          <div class="bh-room-preview">
+            <div class="bh-room-viewport" #bhRoomViewport>
+              <div class="bh-room-world" [style.transform]="getRoomPreviewTransformForPadded(r.id, bhRoomViewport.offsetWidth, bhRoomViewport.offsetHeight, 16)">
+                <div
+                  class="bh-room-item"
+                  *ngFor="let it of (getRoomPreview(r.id)?.items || [])"
+                  [class.item-cubicle]="it.type === 'cubicle'"
+                  [ngStyle]="{
+                    left: it.x + 'px',
+                    top: it.y + 'px',
+                    width: it.w + 'px',
+                    height: it.h + 'px',
+                    background: it.color
+                  }"
+                >
+                  <span *ngIf="it.type === 'cubicle'" class="bh-room-label">{{ it.label }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="bh-room-stats">Cubicles: {{ r.cubicles || 0 }}</div>
+        </div>
+      </div>
+
+      <div class="building-hover-foot" *ngIf="getBuildingRooms(hoveredBuilding.id).length > 6">
+        +{{ getBuildingRooms(hoveredBuilding.id).length - 6 }} more rooms…
+      </div>
+    </div>
+
+    <div *ngIf="hoveredRoom && !showFloorCanvas" class="room-hover" [ngStyle]="roomHoverStyle">
+      <div class="room-hover-header">
+        <div class="room-hover-title">{{ hoveredRoom.room_name }}</div>
+        <div class="room-hover-stats">
+          <span><b>Cubicles</b>: {{ hoveredRoom.cubicles || 0 }}</span>
+          <span><b>Assigned</b>: {{ hoveredRoom.itemsAssigned || 0 }}</span>
+        </div>
+      </div>
+
+      <div class="room-preview">
+        <div class="room-preview-viewport" #roomHoverViewport>
+          <div
+            class="room-preview-world"
+            [style.transform]="getRoomPreviewTransformForPadded(hoveredRoom.id, roomHoverViewport.offsetWidth, roomHoverViewport.offsetHeight, 16, 1.08)"
+          >
+            <div
+              class="room-preview-item"
+              *ngFor="let it of (getRoomPreview(hoveredRoom.id)?.items || [])"
+              [class.item-wall]="it.type === 'wall'"
+              [class.item-door]="it.type === 'door'"
+              [class.item-table]="it.type === 'table'"
+              [class.item-cubicle]="it.type === 'cubicle'"
+              [ngStyle]="{
+                left: it.x + 'px',
+                top: it.y + 'px',
+                width: it.w + 'px',
+                height: it.h + 'px',
+                background: it.color
+              }"
+            >
+              <span *ngIf="it.type === 'cubicle'" class="room-preview-label">{{ it.label }}</span>
+            </div>
+          </div>
+
+          <div class="room-preview-loading" *ngIf="roomPreviewLoadingId === hoveredRoom.id">
+            Loading preview…
+          </div>
+        </div>
       </div>
     </div>
 
@@ -208,47 +241,6 @@
             </div>
           </div>
 
-          <div class="room-hover" *ngIf="hoveredRoomId === r.id" [ngStyle]="roomHoverStyle">
-            <div class="room-hover-header">
-              <div class="room-hover-title">{{ r.room_name }}</div>
-              <div class="room-hover-stats">
-                <span><b>Cubicles</b>: {{ r.cubicles || 0 }}</span>
-                <span><b>Assigned</b>: {{ r.itemsAssigned || 0 }}</span>
-              </div>
-            </div>
-
-            <div class="room-preview">
-              <div class="room-preview-viewport" #roomHoverViewport>
-                <div
-                  class="room-preview-world"
-                  [style.transform]="getRoomPreviewTransformForPadded(r.id, roomHoverViewport.offsetWidth, roomHoverViewport.offsetHeight, 16, 1.08)"
-                >
-                  <div
-                    class="room-preview-item"
-                    *ngFor="let it of (getRoomPreview(r.id)?.items || [])"
-                    [class.item-wall]="it.type === 'wall'"
-                    [class.item-door]="it.type === 'door'"
-                    [class.item-table]="it.type === 'table'"
-                    [class.item-cubicle]="it.type === 'cubicle'"
-                    [ngStyle]="{
-                      left: it.x + 'px',
-                      top: it.y + 'px',
-                      width: it.w + 'px',
-                      height: it.h + 'px',
-                      background: it.color
-                    }"
-                  >
-                    <span *ngIf="it.type === 'cubicle'" class="room-preview-label">{{ it.label }}</span>
-                  </div>
-                </div>
-
-                <div class="room-preview-loading" *ngIf="roomPreviewLoadingId === r.id">
-                  Loading preview…
-                </div>
-              </div>
-            </div>
-
-          </div>
         </div>
 
         <div class="room-tile room-tile-add" (click)="createRoomInBuilding()" role="button" tabindex="0" (keyup.enter)="createRoomInBuilding()">
@@ -494,19 +486,36 @@
             </div>
 
             <div class="transfer-row">
+              <label class="transfer-label">Target building</label>
+              <select [(ngModel)]="transferTargetBuildingId" (ngModelChange)="onTransferTargetBuildingChange()">
+                <option [value]="null">Select building</option>
+                <option *ngFor="let b of buildings" [value]="b.id">{{ b.building_name }}</option>
+              </select>
+            </div>
+            <div class="transfer-row">
+              <label class="transfer-label">Target room</label>
+              <select [(ngModel)]="transferTargetRoomId" (ngModelChange)="onTransferTargetRoomChange()" [disabled]="!transferTargetBuildingId || isStorageBuilding(transferTargetBuildingId)">
+                <option [value]="null">Select room</option>
+                <option *ngFor="let r of transferTargetRooms" [value]="r.id">{{ r.room_name }}</option>
+              </select>
+            </div>
+            <div class="transfer-row">
               <label class="transfer-label">Target cubicle</label>
-              <select [(ngModel)]="transferToCubicleId">
+              <select [(ngModel)]="transferToCubicleId" [disabled]="!transferTargetRoomId || isStorageBuilding(transferTargetBuildingId)">
                 <option [value]="null">Select target cubicle</option>
-                <option *ngFor="let c of availableCubicles" [value]="c.id">{{ c.label }}{{ c.assignedUser ? ' (' + c.assignedUser + ')' : '' }}</option>
+                <option *ngFor="let c of transferTargetCubicles" [value]="c.id">{{ c.label }}{{ c.assignedUser ? ' (' + c.assignedUser + ')' : '' }}</option>
               </select>
             </div>
 
             <div class="transfer-row">
               <label class="transfer-label">Assigned user</label>
               <label class="transfer-opt transfer-checkbox">
-                <input type="checkbox" [(ngModel)]="transferAssignedUser" />
+                <input type="checkbox" [(ngModel)]="transferAssignedUser" [disabled]="isStorageBuilding(transferTargetBuildingId)" />
                 Transfer assigned user
               </label>
+              <div class="transfer-note" *ngIf="isStorageBuilding(transferTargetBuildingId)">
+                Cannot transfer assigned user to storage
+              </div>
               <div class="transfer-note" *ngIf="transferSourceAssignedUser">
                 Source user: {{ transferSourceAssignedUser }}
               </div>
@@ -516,21 +525,36 @@
               <label class="transfer-label">Move</label>
               <div class="transfer-options">
                 <label class="transfer-opt">
-                  <input type="radio" name="transferModeGlobal" [(ngModel)]="transferAll" [value]="true" /> All items
+                  <input type="radio" name="transferModeGlobal" [(ngModel)]="transferMode" [value]="'all'" /> All items
                 </label>
                 <label class="transfer-opt">
-                  <input type="radio" name="transferModeGlobal" [(ngModel)]="transferAll" [value]="false" /> Selected types
+                  <input type="radio" name="transferModeGlobal" [(ngModel)]="transferMode" [value]="'selected'" /> Selected types
+                </label>
+                <label class="transfer-opt">
+                  <input type="radio" name="transferModeGlobal" [(ngModel)]="transferMode" [value]="'userOnly'" [disabled]="!transferSourceAssignedUser || isStorageBuilding(transferTargetBuildingId)" /> User only
                 </label>
               </div>
             </div>
 
-            <div class="transfer-row" *ngIf="!transferAll">
-              <label class="transfer-label">Item types</label>
-              <div class="transfer-types">
+            <div class="transfer-row" *ngIf="transferMode === 'selected'">
+              <label class="transfer-label">Select items</label>
+              <div class="transfer-items" *ngIf="transferSourceItems.length > 0">
+                <label class="transfer-item" *ngFor="let item of transferSourceItems" [class.selected]="item.selected">
+                  <input type="checkbox" [(ngModel)]="item.selected" />
+                  <span>{{ item.label }}</span>
+                </label>
+              </div>
+              <div class="transfer-note" *ngIf="transferSourceItems.length === 0">
+                No detailed items found for the selected source cubicle. Select item types instead.
+              </div>
+              <div class="transfer-types" *ngIf="transferSourceItems.length === 0">
                 <button type="button" class="chip" *ngFor="let t of availableItemTypes" (click)="toggleTransferType(t.key)" [class.active]="transferSelectedTypes.indexOf(t.key) > -1">
                   {{ t.label }}
                 </button>
               </div>
+            </div>
+            <div class="transfer-note" *ngIf="transferMode === 'userOnly'">
+              User-only transfer will move just the assigned user and no items.
             </div>
           </div>
 

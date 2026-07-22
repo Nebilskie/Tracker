@@ -60,18 +60,13 @@
 
             <!-- Card Content -->
             <div class="card-title">
-              {{ r.title }}
+              {{ getRequestDisplayTitle(r) }}
             </div>
 
             <!-- Card Meta -->
             <div class="card-meta">
               <div class="avatar">
                 {{ r.ownerInitials }}
-              </div>
-
-              <div class="meta-text">
-                <div class="time">{{ r.time }}</div>
-                <div class="date">{{ r.date }}</div>
               </div>
             </div>
 
@@ -117,7 +112,7 @@
         </div>
 
         <div class="request-title">
-          {{ selectedRequest.title }}
+          {{ getRequestDisplayTitle(selectedRequest) }}
         </div>
       </div>
 
@@ -131,17 +126,20 @@
         {{ selectedRequest.reason || 'No reason provided' }}
       </div>
 
-      <div class="time-date">
-        <div class="td-col">
-          <div class="td-label">Time</div>
-          <div class="td-value">{{ selectedRequest.time }}</div>
-        </div>
-
-        <div class="td-col">
-          <div class="td-label">Date</div>
-          <div class="td-value">{{ selectedRequest.date }}</div>
+      <div *ngIf="selectedRequest.status === 'completed' && getCompletedItemName(selectedRequest)">
+        <div class="reason-label">Completed Item:</div>
+        <div class="reason-box completed-item-box">
+          {{ getCompletedItemName(selectedRequest) }}
         </div>
       </div>
+
+      <div *ngIf="selectedRequest.status === 'rejected'" class="rejection-note">
+        <div class="reason-label rejection-label">Rejection Reason:</div>
+        <div class="reason-box rejection-box">
+          {{ selectedRequest.rejectedReason || 'No rejection reason provided' }}
+        </div>
+      </div>
+
 
       <div
         class="status-timestamps"
@@ -156,6 +154,10 @@
           <div class="td-label">In Progress at</div>
           <div class="td-value">{{ selectedRequest.inprogressAt }}</div>
         </div>
+        <div class="td-col" *ngIf="selectedRequest.pendingAt">
+          <div class="td-label">Pending at</div>
+          <div class="td-value">{{ selectedRequest.pendingAt }}</div>
+        </div>
         <div class="td-col" *ngIf="selectedRequest.completedAt">
           <div class="td-label">Completed at</div>
           <div class="td-value">{{ selectedRequest.completedAt }}</div>
@@ -163,10 +165,6 @@
         <div class="td-col" *ngIf="selectedRequest.rejectedAt">
           <div class="td-label">Rejected at</div>
           <div class="td-value">{{ selectedRequest.rejectedAt }}</div>
-        </div>
-        <div class="td-col" *ngIf="selectedRequest.pendingAt">
-          <div class="td-label">Pending at</div>
-          <div class="td-value">{{ selectedRequest.pendingAt }}</div>
         </div>
         <div class="td-col" *ngIf="selectedRequest.rejectedFrom">
           <div class="td-label">Rejected from</div>

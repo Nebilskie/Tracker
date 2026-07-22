@@ -307,40 +307,37 @@ export class UserFloorplanPage implements OnInit {
 
   getInventoryTooltipLines(label: string): string[] {
     const row = this.cubicleInventory[this.normalizeCubicleLabel(label)] || {};
+
     const lines: string[] = [];
+    const itemNames = Array.isArray(row.itemNames)
+      ? row.itemNames.filter((name: any) => String(name || '').trim() !== '')
+      : [];
 
-    const assignedUsers = String(row.assignedUsers || '').trim();
-    if (assignedUsers) {
-      lines.push(`User: ${assignedUsers}`);
+    if (itemNames.length) {
+      lines.push(...itemNames.map((name: any) => String(name)));
+    } else {
+      const fields: Array<[string, any]> = [
+        ['Monitor', row.monitors],
+        ['Headset', row.headsets],
+        ['Camera', row.cameras],
+        ['Mouse', row.mouse],
+        ['Keyboard', row.keyboards],
+        ['Computer', row.computers],
+      ];
+
+      for (const [labelText, value] of fields) {
+        const n = Number(value);
+        if (Number.isFinite(n) && n > 0) {
+          lines.push(`${labelText}: ${n}`);
+        }
+      }
     }
 
-    if (Array.isArray(row.itemNames) && row.itemNames.length > 0) {
-      lines.push(`Items: ${row.itemNames.join(', ')}`);
+    if (row.assignedUsers && String(row.assignedUsers).trim() !== '') {
+      lines.unshift(`User: ${String(row.assignedUsers).trim()}`);
     }
 
-    const monitor = row.monitors ? Number(row.monitors) : 0;
-    const headset = row.headsets ? Number(row.headsets) : 0;
-    const camera = row.cameras ? Number(row.cameras) : 0;
-    const mouse = row.mouse ? Number(row.mouse) : 0;
-    const keyboard = row.keyboards ? Number(row.keyboards) : 0;
-    const computer = row.computers ? Number(row.computers) : 0;
-    const equipment: string[] = [];
-
-    if (monitor) equipment.push(`M:${monitor}`);
-    if (headset) equipment.push(`H:${headset}`);
-    if (mouse) equipment.push(`Mo:${mouse}`);
-    if (keyboard) equipment.push(`K:${keyboard}`);
-    if (computer) equipment.push(`PC:${computer}`);
-
-    if (equipment.length > 0) {
-      lines.push(`Inventory: ${equipment.join(' | ')}`);
-    }
-
-    if (!lines.length) {
-      lines.push('No assignment or items found');
-    }
-
-    return lines;
+    return lines.length > 0 ? lines : ['No assigned items'];
   }
 
   switchRoom(roomId: number) {
@@ -432,49 +429,35 @@ export class UserFloorplanPage implements OnInit {
   }
 
   private computeHoverStyle(
-    anchorEl: HTMLElement | null,
+    _anchorEl: HTMLElement | null,
     approxSize: { w: number; h: number }
   ): Record<string, any> {
     const margin = 12;
     const vw = Math.max(320, window.innerWidth || 0);
     const vh = Math.max(320, window.innerHeight || 0);
 
-    const rect = anchorEl?.getBoundingClientRect?.();
-    const anchorLeft = rect?.left ?? margin;
-    const anchorTop = rect?.top ?? margin;
-    const anchorRight = rect?.right ?? margin + 200;
-
-    // If there is a persistent left sidebar/menu, prevent the hover from being placed under it.
     const sidebarEl =
       (document.querySelector('ion-menu') as HTMLElement | null) ??
       (document.querySelector('.menu') as HTMLElement | null) ??
       (document.querySelector('.side-menu') as HTMLElement | null) ??
       (document.querySelector('ion-split-pane') as HTMLElement | null);
     const sidebarRect = sidebarEl?.getBoundingClientRect?.();
-    // Fallback to known layout (bottom bar uses left: 228px)
-    const sidebarRight =
-      sidebarRect && sidebarRect.width > 40 ? sidebarRect.right : 228;
+    const sidebarRight = sidebarRect && sidebarRect.width > 40 ? sidebarRect.right : 0;
 
-    // mimic existing positioning: show to the right, slightly overlapping the card
-    let left = anchorRight - 80;
-    let top = Math.max(margin, anchorTop - 16);
+    const contentLeft = Math.max(margin, sidebarRight + margin);
+    const contentRight = vw - margin;
+    const contentWidth = Math.max(1, contentRight - contentLeft);
 
-    const panelW = Math.min(approxSize.w, vw - margin * 2);
+    const panelW = Math.min(approxSize.w, contentWidth);
     const panelH = Math.min(approxSize.h, vh - margin * 2);
 
-    // If it would overflow right edge, flip to the left side.
-    if (left + panelW > vw - margin) {
-      left = anchorLeft - panelW + 80;
-    }
-
-    // Clamp into viewport.
-    left = Math.max(sidebarRight + margin, Math.min(left, vw - panelW - margin));
-    top = Math.max(margin, Math.min(top, vh - panelH - margin));
+    const left = Math.round(contentLeft + Math.max(0, (contentWidth - panelW) / 2));
+    const top = Math.round(Math.max(margin, Math.min((vh - panelH) / 2, vh - panelH - margin)));
 
     return {
       position: 'fixed',
-      left: `${Math.round(left)}px`,
-      top: `${Math.round(top)}px`,
+      left: `${left}px`,
+      top: `${top}px`,
       width: `${panelW}px`,
       height: `${panelH}px`,
       maxWidth: `calc(100vw - ${margin * 2}px)`,

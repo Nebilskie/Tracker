@@ -119,10 +119,15 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
   transferFromLabel: string | null = null;
   transferFromCubicleId: number | null = null;
   transferToCubicleId: number | null = null;
+  transferTargetBuildingId: number | null = null;
+  transferTargetRoomId: number | null = null;
   availableCubicles: Array<{ id: number; label: string; assignedUser?: string | null }> = [];
+  transferTargetRooms: BuildingRoom[] = [];
+  transferTargetCubicles: Array<{ id: number; label: string; assignedUser?: string | null }> = [];
   transferSelectedTypes: string[] = [];
-  transferAll = false;
+  transferMode: 'all' | 'selected' | 'userOnly' = 'all';
   transferAssignedUser = false;
+  transferSourceItems: Array<{ label: string; type: string; code: string; selected: boolean }> = [];
   readonly availableItemTypes = [
     { key: 'monitor', label: 'Monitor' },
     { key: 'headset', label: 'Headset' },
@@ -320,6 +325,14 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
     this.hoveredBuildingId = null;
     this.buildingRoomsLoadingId = null;
     this.buildingHoverStyle = {};
+  }
+
+  get hoveredBuilding(): MstBuilding | null {
+    return this.buildings.find((b) => b.id === this.hoveredBuildingId) ?? null;
+  }
+
+  get hoveredRoom(): BuildingRoom | null {
+    return this.rooms.find((r) => r.id === this.hoveredRoomId) ?? null;
   }
 
   getBuildingRooms(buildingId: number): BuildingRoom[] {
@@ -657,49 +670,21 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
   }
 
   private computeHoverStyle(
-    anchorEl: HTMLElement | null,
+    _anchorEl: HTMLElement | null,
     approxSize: { w: number; h: number }
   ): Record<string, any> {
     const margin = 12;
     const vw = Math.max(320, window.innerWidth || 0);
     const vh = Math.max(320, window.innerHeight || 0);
 
-    const rect = anchorEl?.getBoundingClientRect?.();
-    const anchorLeft = rect?.left ?? margin;
-    const anchorTop = rect?.top ?? margin;
-    const anchorRight = rect?.right ?? margin + 200;
-
-    // If there is a persistent left sidebar/menu, prevent the hover from being placed under it.
-    const sidebarEl =
-      (document.querySelector('ion-menu') as HTMLElement | null) ??
-      (document.querySelector('.menu') as HTMLElement | null) ??
-      (document.querySelector('.side-menu') as HTMLElement | null) ??
-      (document.querySelector('ion-split-pane') as HTMLElement | null);
-    const sidebarRect = sidebarEl?.getBoundingClientRect?.();
-    // Fallback to known layout (bottom bar uses left: 228px)
-    const sidebarRight =
-      sidebarRect && sidebarRect.width > 40 ? sidebarRect.right : 228;
-
-    // mimic existing positioning: show to the right, slightly overlapping the card
-    let left = anchorRight - 80;
-    let top = anchorTop;
-
     const panelW = Math.min(approxSize.w, vw - margin * 2);
     const panelH = Math.min(approxSize.h, vh - margin * 2);
 
-    // If it would overflow right edge, flip to the left side.
-    if (left + panelW > vw - margin) {
-      left = anchorLeft - panelW + 80;
-    }
-
-    // Clamp into viewport.
-    left = Math.max(sidebarRight + margin, Math.min(left, vw - panelW - margin));
-    top = Math.max(margin, Math.min(top, vh - panelH - margin));
-
     return {
       position: 'fixed',
-      left: `${Math.round(left)}px`,
-      top: `${Math.round(top)}px`,
+      left: 'calc(50% - 300px)',
+      top: '40%',
+      transform: 'translate(-50%, -50%)',
       width: `${panelW}px`,
       height: `${panelH}px`,
       maxWidth: `calc(100vw - ${margin * 2}px)`,
@@ -1026,33 +1011,39 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
     this.transferPanelOpen = true;
     this.transferFromLabel = this.selectedFloorItem?.type === 'cubicle' ? this.selectedFloorItem.label : null;
     this.transferFromCubicleId = null;
+    this.transferTargetBuildingId = this.activeBuildingId;
+    this.transferTargetRoomId = null;
     this.transferToCubicleId = null;
+    this.transferTargetRooms = [];
+    this.transferTargetCubicles = [];
     this.transferSelectedTypes = [];
-    this.transferAll = false;
+    this.transferSourceItems = [];
+    this.transferMode = 'all';
     this.transferAssignedUser = false;
     this.availableCubicles = [];
 
     if (this.activeRoomId != null) {
       this.floorplanApi.listRoomCubicles(this.activeRoomId).subscribe({
         next: (res: any) => {
-          if (res?.success && Array.isArray(res.cubicles)) {
-            this.availableCubicles = res.cubicles.map((c: any) => ({
-              id: Number(c.id),
-              label: String(c.label || ''),
-              assignedUser: c.assignedUser || null,
-            }));
+            if (res?.success && Array.isArray(res.cubicles)) {
+            this.availableCubicles = res.cubicles
+              .filter((c: any) => String(c.label || '').trim() !== '')
+              .map((c: any) => ({
+                id: Number(c.id),
+                label: String(c.label || ''),
+                assignedUser: c.assignedUser || null,
+              }));
 
             if (this.transferFromLabel) {
               const key = String(this.transferFromLabel || '').trim().toLowerCase();
               const found = this.availableCubicles.find((c) => String(c.label || '').trim().toLowerCase() === key);
               if (found) {
                 this.transferFromCubicleId = Number(found.id);
+                this.buildTransferSourceItems();
               }
             }
 
-            if (this.transferSourceAssignedUser) {
-              this.transferAssignedUser = true;
-            }
+            // Do not auto-check transferAssignedUser; user must opt-in explicitly.
           }
         },
         error: (err: unknown) => {
@@ -1061,6 +1052,10 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
         }
       });
     }
+
+    if (this.transferTargetBuildingId != null) {
+      void this.loadTransferTargetRooms(this.transferTargetBuildingId);
+    }
   }
 
   cancelTransfer() {
@@ -1068,6 +1063,10 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
     this.transferFromLabel = null;
     this.transferFromCubicleId = null;
     this.transferToCubicleId = null;
+    this.transferTargetBuildingId = null;
+    this.transferTargetRoomId = null;
+    this.transferTargetRooms = [];
+    this.transferTargetCubicles = [];
     this.transferSelectedTypes = [];
     this.transferAssignedUser = false;
     this.availableCubicles = [];
@@ -1090,21 +1089,165 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
     else this.transferSelectedTypes.splice(idx, 1);
   }
 
+  onTransferSourceChange() {
+    this.buildTransferSourceItems();
+  }
+
+  onTransferTargetBuildingChange() {
+    this.transferTargetRoomId = null;
+    this.transferTargetCubicles = [];
+    this.transferToCubicleId = null;
+    if (this.transferTargetBuildingId != null) {
+      // if storage building selected, don't load rooms/cubicles
+      if (this.isStorageBuilding(this.transferTargetBuildingId)) {
+        this.transferTargetRooms = [];
+        this.transferTargetCubicles = [];
+      } else {
+        void this.loadTransferTargetRooms(this.transferTargetBuildingId);
+      }
+    }
+  }
+
+  onTransferTargetRoomChange() {
+    this.transferToCubicleId = null;
+    this.transferTargetCubicles = [];
+    if (this.transferTargetRoomId != null) {
+      this.loadTransferTargetCubicles(this.transferTargetRoomId);
+    }
+  }
+
+  isStorageBuilding(buildingId: number | null): boolean {
+    if (buildingId == null) return false;
+    const b = this.buildings.find((x) => x.id === Number(buildingId));
+    if (!b) return false;
+    return String(b.building_name || '').trim().toLowerCase() === 'storage';
+  }
+
+  private async loadTransferTargetRooms(buildingId: number) {
+    try {
+      const res: any = await firstValueFrom(this.floorplanApi.listBuildingRooms(buildingId));
+      if (res?.success && Array.isArray(res.rooms)) {
+        this.transferTargetRooms = res.rooms.map((r: any) => ({
+          id: Number(r.id),
+          room_name: r.room_name,
+          user_id: r.user_id,
+          building_id: Number(r.building_id),
+          cubicles: Number(r.cubicles || 0),
+          itemsAssigned: Number(r.itemsAssigned || 0),
+        }));
+      } else {
+        this.transferTargetRooms = [];
+      }
+    } catch (e) {
+      console.error('Failed loading target rooms', e);
+      this.transferTargetRooms = [];
+    }
+  }
+
+  private loadTransferTargetCubicles(roomId: number) {
+    this.floorplanApi.listRoomCubicles(roomId).subscribe({
+      next: (res: any) => {
+          if (res?.success && Array.isArray(res.cubicles)) {
+          this.transferTargetCubicles = res.cubicles
+            .filter((c: any) => String(c.label || '').trim() !== '')
+            .map((c: any) => ({
+              id: Number(c.id),
+              label: String(c.label || ''),
+              assignedUser: c.assignedUser || null,
+            }));
+        } else {
+          this.transferTargetCubicles = [];
+        }
+      },
+      error: (err: unknown) => {
+        console.error('Failed loading target cubicles', err);
+        this.transferTargetCubicles = [];
+      }
+    });
+  }
+
+  private buildTransferSourceItems(): void {
+    this.transferSourceItems = [];
+    if (!this.transferFromCubicleId) return;
+
+    const source = this.availableCubicles.find((c) => Number(c.id) === Number(this.transferFromCubicleId));
+    if (!source || !source.label) return;
+
+    const row = this.cubicleInventory[this.normalizeCubicleLabel(source.label)] || {};
+    const itemNames = Array.isArray(row.itemNames)
+      ? row.itemNames.filter((name: any) => String(name || '').trim() !== '')
+      : [];
+
+    this.transferSourceItems = itemNames.map((name: any) => {
+      const text = String(name || '').trim();
+      let itemType = '';
+      let code = text;
+      const parts = text.split(':');
+      if (parts.length >= 2) {
+        itemType = String(parts[0] || '').trim().toLowerCase();
+        code = String(parts.slice(1).join(':') || '').trim();
+      }
+      return {
+        label: text,
+        type: itemType,
+        code,
+        selected: false,
+      };
+    });
+  }
+
   performTransfer() {
     if (!this.transferFromCubicleId) { this.notification.show('Choose a source cubicle'); return; }
-    if (!this.transferToCubicleId) { this.notification.show('Choose a target cubicle'); return; }
+    // Allow transfers to building-level storage without choosing a room/cubicle
+    if (!this.transferToCubicleId && !this.isStorageBuilding(this.transferTargetBuildingId)) { this.notification.show('Choose a target cubicle'); return; }
 
     const source = this.availableCubicles.find((c) => Number(c.id) === Number(this.transferFromCubicleId));
     const fromLabel = source ? String(source.label || '') : null;
     if (!fromLabel) { this.notification.show('Invalid source selection'); return; }
 
+    const transferRoomId = this.activeRoomId ?? this.currentNumericRoomId();
+    if (transferRoomId == null) {
+      this.notification.show('Invalid room selected for transfer');
+      return;
+    }
+
     const payload: any = {
-      roomId: this.roomId,
+      roomId: transferRoomId,
       fromLabel,
       toCubicleId: this.transferToCubicleId,
+      transferTargetBuildingId: this.transferTargetBuildingId,
       transferAssignedUser: this.transferAssignedUser,
+      transferMode: this.transferMode,
     };
-    if (!this.transferAll && this.transferSelectedTypes && this.transferSelectedTypes.length) payload.itemTypes = this.transferSelectedTypes;
+
+    if (this.transferMode === 'userOnly') {
+      if (!this.transferAssignedUser) {
+        this.notification.show('Enable Transfer assigned user to move user only');
+        return;
+      }
+      if (this.isStorageBuilding(this.transferTargetBuildingId)) {
+        this.notification.show('Cannot transfer assigned user to storage');
+        return;
+      }
+      payload.transferOnlyUser = true;
+      payload.transferAssignedUser = true;
+      payload.itemCodes = [];
+      payload.itemTypes = [];
+    } else if (this.transferMode === 'selected') {
+      const selectedCodes = this.transferSourceItems
+        .filter((item) => item.selected && item.code)
+        .map((item) => String(item.code || '').trim())
+        .filter((code) => code !== '');
+
+      if (selectedCodes.length) {
+        payload.itemCodes = selectedCodes;
+      } else if (this.transferSelectedTypes && this.transferSelectedTypes.length) {
+        payload.itemTypes = this.transferSelectedTypes;
+      } else {
+        this.notification.show('Choose items or item types to transfer');
+        return;
+      }
+    }
 
     this.floorplanApi.transferItems(payload).subscribe({
       next: (res: any) => {

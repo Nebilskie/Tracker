@@ -129,7 +129,7 @@ export class ItRequestPage implements OnInit, OnDestroy {
               completedAtRaw: req.completed_at || undefined,
               rejectedAtRaw: req.rejected_at || undefined,
               pendingAtRaw: req.pending_at || undefined,
-              rejectedFrom: req.rejected_from || null,
+              rejectedFrom: req.rejected_from === 'I' ? 'inprogress' : req.rejected_from === 'N' ? 'new' : req.rejected_from || null,
               inventory_item_id: req.inventory_item_id ?? null,
               inventory_item_name: req.inventory_item_name || null,
               previous_inventory_item_name: req.previous_inventory_item_name || null,
