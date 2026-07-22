@@ -659,8 +659,12 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
     void this.ensureRoomPreview(room.id);
     this.roomHoverStyle = this.computeHoverStyle(
       (ev?.currentTarget as HTMLElement) ?? null,
-      { w: 560, h: 320 }
+      this.getRoomHoverSize()
     );
+  }
+
+  private getRoomHoverSize(): { w: number; h: number } {
+    return { w: 380, h: 260 };
   }
 
   onRoomMouseLeave() {
@@ -679,11 +683,13 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
 
     const panelW = Math.min(approxSize.w, vw - margin * 2);
     const panelH = Math.min(approxSize.h, vh - margin * 2);
+    const centerX = Math.min(Math.max(panelW / 2 + margin, vw * 0.34), vw - panelW / 2 - margin);
+    const centerY = Math.min(Math.max(panelH / 2 + margin, vh * 0.42), vh - panelH / 2 - margin);
 
     return {
       position: 'fixed',
-      left: 'calc(50% - 300px)',
-      top: '40%',
+      left: `${centerX}px`,
+      top: `${centerY}px`,
       transform: 'translate(-50%, -50%)',
       width: `${panelW}px`,
       height: `${panelH}px`,

@@ -740,71 +740,24 @@
 }
 
 .room-hover {
-  display: flex;
   position: fixed !important;
-  left: 50% !important;
-  top: 50% !important;
-  transform: translate(-50%, -50%) !important;
-  width: 560px !important;
-  height: 320px !important;
-  max-width: min(95vw, 560px) !important;
-  max-height: min(85vh, 420px) !important;
-  overflow: hidden !important;
-  z-index: 1000000 !important;
-}
-
-.room-tile-add {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 28px !important;
-  background: white;
-  border: 2px dashed rgba(95, 108, 255, 0.25);
-  cursor: pointer;
-  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
-  position: relative;
-  overflow: hidden;
-
-  &:hover {
-    border-color: rgba(95, 108, 255, 0.5);
-    background: linear-gradient(135deg, rgba(95, 108, 255, 0.08) 0%, rgba(125, 134, 255, 0.04) 100%);
-    box-shadow: 0 8px 24px rgba(95, 108, 255, 0.12);
-    transform: translateY(-4px);
-  }
-
-  &:active {
-    transform: scale(0.96);
-  }
-}
-
-.room-tile-viewport {
-  width: 100%;
-  height: 100%;
-  border-radius: 12px;
-  background:
-    linear-gradient(to right, rgba(15, 23, 42, 0.08) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(15, 23, 42, 0.08) 1px, transparent 1px);
-  background-size: 20px 20px;
-  border: 1px solid rgba(15, 23, 42, 0.10);
-  position: relative;
-  overflow: hidden;
-}
-
-.room-tile-world {
-  position: absolute;
-  inset: 0;
-  transform-origin: 0 0;
-}
-
-.room-tile-item {
-  position: absolute;
-  border-radius: 8px;
-  border: 1px solid rgba(0, 0, 0, 0.12);
-  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.10);
-}
-
-.room-tile:hover .room-hover {
+  width: fit-content !important;
+  max-width: min(600px, calc(100vw - 48px)) !important;
+  min-width: 320px !important;
+  max-height: calc(100vh - 48px) !important;
+  border-radius: 14px !important;
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.94) 0%, rgba(15, 23, 42, 0.96) 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28), 0 8px 24px rgba(95, 108, 255, 0.15) !important;
+  padding: 12px !important;
   display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+  z-index: 1000000 !important;
+  backdrop-filter: blur(6px) !important;
+  overflow: hidden !important;
+  overscroll-behavior: contain !important;
+  cursor: pointer !important;
 }
 
 .room-hover-header {
@@ -836,12 +789,12 @@
 .room-preview {
   flex: 1;
   min-height: 0;
-  padding: 0 12px;
+  padding: 0 12px 12px !important;
 }
 
 .room-preview-viewport {
   width: 100%;
-  height: 160px;
+  height: 200px;
   border-radius: 12px;
   background:
     linear-gradient(to right, rgba(148, 163, 184, 0.18) 1px, transparent 1px),
@@ -887,6 +840,32 @@
   font-weight: 800;
   color: rgba(248, 250, 252, 0.85);
   background: rgba(15, 23, 42, 0.35);
+}
+
+.room-tile-viewport {
+  width: 100%;
+  height: 100%;
+  border-radius: 12px;
+  background:
+    linear-gradient(to right, rgba(15, 23, 42, 0.08) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(15, 23, 42, 0.08) 1px, transparent 1px);
+  background-size: 20px 20px;
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  position: relative;
+  overflow: hidden;
+}
+
+.room-tile-world {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+}
+
+.room-tile-item {
+  position: absolute;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.10);
 }
 
 .room-hover-action {
