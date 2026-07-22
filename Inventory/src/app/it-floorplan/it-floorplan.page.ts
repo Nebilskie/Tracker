@@ -91,6 +91,7 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
   hoveredBuildingId: number | null = null;
   buildingHoverStyle: Record<string, any> = {};
   roomHoverStyle: Record<string, any> = {};
+  private hoverLeaveTimer: number | null = null;
 
   private buildingRoomsCache = new Map<number, BuildingRoom[]>();
   buildingRoomsLoadingId: number | null = null;
@@ -322,9 +323,15 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
   }
 
   onBuildingMouseLeave() {
-    this.hoveredBuildingId = null;
-    this.buildingRoomsLoadingId = null;
-    this.buildingHoverStyle = {};
+    this.scheduleHoverClose();
+  }
+
+  onBuildingHoverEnter() {
+    this.cancelScheduledHoverClose();
+  }
+
+  onBuildingHoverLeave() {
+    this.scheduleHoverClose();
   }
 
   get hoveredBuilding(): MstBuilding | null {
@@ -655,6 +662,7 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
   }
 
   onRoomMouseEnter(room: BuildingRoom, ev?: MouseEvent) {
+    this.cancelScheduledHoverClose();
     this.hoveredRoomId = room.id;
     void this.ensureRoomPreview(room.id);
     this.roomHoverStyle = this.computeHoverStyle(
@@ -663,14 +671,40 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
     );
   }
 
+  onRoomHoverEnter() {
+    this.cancelScheduledHoverClose();
+  }
+
+  onRoomHoverLeave() {
+    this.scheduleHoverClose();
+  }
+
   private getRoomHoverSize(): { w: number; h: number } {
     return { w: 380, h: 260 };
   }
 
   onRoomMouseLeave() {
-    this.hoveredRoomId = null;
-    this.roomPreviewLoadingId = null;
-    this.roomHoverStyle = {};
+    this.scheduleHoverClose();
+  }
+
+  private scheduleHoverClose() {
+    this.cancelScheduledHoverClose();
+    this.hoverLeaveTimer = window.setTimeout(() => {
+      this.hoveredRoomId = null;
+      this.hoveredBuildingId = null;
+      this.roomPreviewLoadingId = null;
+      this.buildingRoomsLoadingId = null;
+      this.roomHoverStyle = {};
+      this.buildingHoverStyle = {};
+      this.hoverLeaveTimer = null;
+    }, 180);
+  }
+
+  private cancelScheduledHoverClose() {
+    if (this.hoverLeaveTimer != null) {
+      window.clearTimeout(this.hoverLeaveTimer);
+      this.hoverLeaveTimer = null;
+    }
   }
 
   private computeHoverStyle(

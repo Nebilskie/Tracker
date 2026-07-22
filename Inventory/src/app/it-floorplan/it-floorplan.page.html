@@ -117,7 +117,7 @@
       </div>
     </div>
 
-    <div *ngIf="hoveredBuilding && !showFloorCanvas" class="building-hover" [class.building-hover--compact]="getBuildingRooms(hoveredBuilding.id).length === 0" [ngStyle]="buildingHoverStyle" (click)="selectBuilding(hoveredBuilding)" role="button" tabindex="0" (keyup.enter)="selectBuilding(hoveredBuilding)">
+    <div *ngIf="hoveredBuilding && !showFloorCanvas" class="building-hover" [class.building-hover--compact]="getBuildingRooms(hoveredBuilding.id).length === 0" [ngStyle]="buildingHoverStyle" (mouseenter)="onBuildingHoverEnter()" (mouseleave)="onBuildingHoverLeave()" (click)="selectBuilding(hoveredBuilding)" role="button" tabindex="0" (keyup.enter)="selectBuilding(hoveredBuilding)">
       <div class="building-hover-title">{{ hoveredBuilding.building_name }}</div>
 
       <div class="building-hover-loading" *ngIf="buildingRoomsLoadingId === hoveredBuilding.id">
@@ -160,7 +160,7 @@
       </div>
     </div>
 
-    <div *ngIf="hoveredRoom && !showFloorCanvas" class="room-hover" [ngStyle]="roomHoverStyle">
+    <div *ngIf="hoveredRoom && !showFloorCanvas" class="room-hover" [ngStyle]="roomHoverStyle" (mouseenter)="onRoomHoverEnter()" (mouseleave)="onRoomHoverLeave()" (click)="openFloorLayoutFromRoom(hoveredRoom)" role="button" tabindex="0" (keyup.enter)="openFloorLayoutFromRoom(hoveredRoom)">
       <div class="room-hover-header">
         <div class="room-hover-title">{{ hoveredRoom.room_name }}</div>
         <div class="room-hover-stats">
