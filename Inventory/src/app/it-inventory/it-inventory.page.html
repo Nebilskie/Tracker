@@ -92,24 +92,40 @@
           <ng-container *ngFor="let row of pagedRows">
             <tr>
               <td *ngFor="let col of columns; let first = first" [ngClass]="{ 'brand-col': col.key === 'brand' }">
-                <div *ngIf="first && isSummaryView" class="summary-name-cell">
-                  <span
-                    class="name-link name-link--action"
-                    role="button"
-                    tabindex="0"
-                    (click)="openCategory(row)"
-                    (keyup.enter)="openCategory(row)"
-                    >{{ row[col.key] ?? '' }}</span
-                  >
-                  <span class="pending-inline" *ngIf="getPendingCount(row) > 0">
-                    Pending: {{ getPendingCount(row) }}
-                  </span>
-                </div>
-                <ng-container *ngIf="col.key === 'status' && !isSummaryView; else plainCell">
-                  <span>{{ row['status'] ?? '' }}</span>
+                <ng-container *ngIf="first && isSummaryView; else detailRow">
+                  <div class="summary-name-cell">
+                    <span
+                      class="name-link name-link--action"
+                      role="button"
+                      tabindex="0"
+                      (click)="openCategory(row)"
+                      (keyup.enter)="openCategory(row)"
+                      >{{ row[col.key] ?? '' }}</span
+                    >
+                    <span class="pending-inline" *ngIf="getPendingCount(row) > 0">
+                      Pending: {{ getPendingCount(row) }}
+                    </span>
+                  </div>
                 </ng-container>
-                <ng-template #plainCell>
-                  <span *ngIf="!(first && isSummaryView)" [class.name-link]="first">{{ row[col.key] ?? '' }}</span>
+                <ng-template #detailRow>
+                  <ng-container *ngIf="first">
+                    <span
+                      class="name-link name-link--action"
+                      role="button"
+                      tabindex="0"
+                      (click)="openItemHistory(row)"
+                      (keyup.enter)="openItemHistory(row)"
+                      >{{ row[col.key] ?? '' }}</span
+                    >
+                  </ng-container>
+                  <ng-container *ngIf="!first">
+                    <ng-container *ngIf="col.key === 'status'; else plainCell">
+                      <span>{{ row['status'] ?? '' }}</span>
+                    </ng-container>
+                    <ng-template #plainCell>
+                      <span>{{ row[col.key] ?? '' }}</span>
+                    </ng-template>
+                  </ng-container>
                 </ng-template>
               </td>
             </tr>
@@ -239,6 +255,48 @@
       <div class="modal-actions">
         <button class="tool-btn cancel-btn" (click)="closeAddModal()">Cancel</button>
         <button class="tool-btn save-btn" (click)="saveNewItem()">Save Item</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- History Modal Overlay -->
+  <div class="history-modal-overlay" *ngIf="showHistoryModal" (click)="closeHistoryModal()">
+    <div class="history-modal" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h3>Item History</h3>
+        <button class="close-btn" (click)="closeHistoryModal()">
+          <ion-icon name="close"></ion-icon>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="history-summary">
+          <div><strong>Item:</strong> {{ historyItem?.['name'] ?? 'Unknown' }}</div>
+          <div><strong>ID:</strong> {{ historyItem?.['id'] ?? 'N/A' }}</div>
+          <div><strong>Status:</strong> {{ historyItem?.['status'] ?? 'N/A' }}</div>
+        </div>
+
+        <div *ngIf="historyLoading" class="history-loading">Loading history...</div>
+
+        <table *ngIf="!historyLoading && itemHistory.length" class="history-table">
+          <thead>
+            <tr>
+              <th>Date / Time</th>
+              <th>From</th>
+              <th>To</th>
+              <th>By</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let entry of itemHistory">
+              <td>{{ entry['transferred_at'] | date:'medium' }}</td>
+              <td>{{ getHistoryFromLocation(entry) }}</td>
+              <td>{{ getHistoryToLocation(entry) }}</td>
+              <td>{{ entry['transferred_by_username'] || 'Unknown' }}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div *ngIf="!historyLoading && !itemHistory.length" class="history-empty">No transfer history available.</div>
       </div>
     </div>
   </div>

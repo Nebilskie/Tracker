@@ -1260,6 +1260,7 @@ export class ItFloorplanPage implements OnInit, OnDestroy {
       transferTargetBuildingId: this.transferTargetBuildingId,
       transferAssignedUser: this.transferAssignedUser,
       transferMode: this.transferMode,
+      transferredByUserId: this.userId,
     };
 
     if (this.transferMode === 'userOnly') {

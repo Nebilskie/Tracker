@@ -7,6 +7,19 @@ export interface UserRecord {
   [key: string]: any;
 }
 
+export interface UserHistoryEntry {
+  id: number;
+  from_building_name?: string;
+  from_room_name?: string;
+  from_cubicle_label?: string;
+  to_building_name?: string;
+  to_room_name?: string;
+  to_cubicle_label?: string;
+  transferred_at: string;
+  transferred_by_user_id?: number;
+  transferred_by_username?: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class UserService {
   private apiBase = environment.apiBase;
@@ -44,5 +57,9 @@ export class UserService {
       `${this.apiBase}/users`,
       payload
     );
+  }
+
+  getUserHistory(userId: number): Observable<{ success: boolean; history: UserHistoryEntry[] }> {
+    return this.http.get<{ success: boolean; history: UserHistoryEntry[] }>(`${this.apiBase}/users/${userId}/history`);
   }
 }

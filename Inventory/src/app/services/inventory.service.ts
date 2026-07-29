@@ -23,6 +23,19 @@ export interface InventoryItem {
   processor?: string;
 }
 
+export interface InventoryItemHistoryEntry {
+  id: number;
+  from_building_name?: string;
+  from_room_name?: string;
+  from_cubicle_label?: string;
+  to_building_name?: string;
+  to_room_name?: string;
+  to_cubicle_label?: string;
+  transferred_at: string;
+  transferred_by_user_id?: number;
+  transferred_by_username?: string;
+}
+
 export interface InventorySummaryItem {
   name: string;
   total: number;
@@ -68,6 +81,10 @@ export class InventoryService {
 
   getItemTypes(): Observable<{ success: boolean; types: string[] }> {
     return this.http.get<{ success: boolean; types: string[] }>(`${this.apiBase}/items/types`);
+  }
+
+  getItemHistory(itemId: number): Observable<{ success: boolean; history: InventoryItemHistoryEntry[] }> {
+    return this.http.get<{ success: boolean; history: InventoryItemHistoryEntry[] }>(`${this.apiBase}/items/${itemId}/history`);
   }
 
   updateItemStatus(itemId: number, status: string, location?: { building_id?: number; room_id?: number; cubicle_id?: number }): Observable<{ success: boolean; status: number }> {

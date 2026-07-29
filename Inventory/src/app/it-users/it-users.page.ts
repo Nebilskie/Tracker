@@ -2,7 +2,7 @@ import { Component, HostListener, OnDestroy, OnInit } from '@angular/core';
 import { Subscription } from 'rxjs';
 import { ModalController, AlertController } from '@ionic/angular';
 import { NotificationService } from '../services/notification.service';
-import { UserService, UserRecord } from '../services/user.service';
+import { UserHistoryEntry, UserService, UserRecord } from '../services/user.service';
 import { FloorplanApiService } from '../services/floorplan-api';
 import { AddUserModalComponent } from './add-user-modal.component';
 import { AutoRefreshService } from '../services/auto-refresh.service';
@@ -35,6 +35,11 @@ export class ItUsersPage implements OnInit, OnDestroy {
   showImportStatus = '';
   showExportDropdown = false;
   visiblePasswordUsers = new Set<string>();
+
+  showUserHistoryModal = false;
+  historyUser: UserRecord | null = null;
+  userHistory: UserHistoryEntry[] = [];
+  historyLoading = false;
 
   buildings: any[] = [];
   filterRooms: any[] = [];
@@ -270,6 +275,44 @@ export class ItUsersPage implements OnInit, OnDestroy {
 
   getPasswordDisplay(user: UserRecord): string {
     return this.isPasswordVisible(user) ? String(user['password'] ?? '') : '••••••••';
+  }
+
+  openUserHistory(user: UserRecord): void {
+    if (!user || !user['id']) {
+      return;
+    }
+
+    this.historyUser = user;
+    this.showUserHistoryModal = true;
+    this.historyLoading = true;
+    this.userHistory = [];
+
+    this.userService.getUserHistory(Number(user['id'])).subscribe(
+      (res) => {
+        this.historyLoading = false;
+        this.userHistory = Array.isArray(res?.history) ? res.history : [];
+      },
+      (err) => {
+        console.error('Failed to load user history', err);
+        this.historyLoading = false;
+        this.userHistory = [];
+      }
+    );
+  }
+
+  closeUserHistory(): void {
+    this.showUserHistoryModal = false;
+    this.historyUser = null;
+    this.userHistory = [];
+    this.historyLoading = false;
+  }
+
+  formatLocation(building?: string, room?: string, cubicle?: string): string {
+    const pieces: string[] = [];
+    if (cubicle) pieces.push(cubicle);
+    if (room) pieces.push(room);
+    if (building) pieces.push(building);
+    return pieces.length ? pieces.join(' • ') : 'N/A';
   }
 
   private isValidLocationId(value: string | number | null | undefined): boolean {

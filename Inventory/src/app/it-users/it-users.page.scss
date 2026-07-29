@@ -501,6 +501,123 @@
   color: var(--text-primary, #222);
 }
 
+.name-link {
+  color: var(--accent-primary, #667eea);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.name-link--action:hover,
+.name-link--action:focus-visible {
+  color: #3b5bdb;
+  outline: none;
+}
+
+.history-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.history-modal {
+  width: min(780px, 100%);
+  max-height: min(90vh, 760px);
+  background: #fff;
+  border-radius: 18px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 28px 64px rgba(15, 23, 42, 0.18);
+}
+
+.history-modal .modal-header {
+  padding: 22px 24px;
+  border-bottom: 1px solid #f0f0f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.history-modal .modal-header h3 {
+  margin: 0;
+  font-size: 20px;
+  color: #111827;
+}
+
+.history-modal .close-btn {
+  background: none;
+  border: none;
+  font-size: 28px;
+  line-height: 1;
+  color: #6b7280;
+  cursor: pointer;
+  padding: 0;
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+}
+
+.history-modal .close-btn:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.history-modal .modal-body {
+  padding: 20px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.history-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  font-size: 14px;
+  color: #374151;
+}
+
+.history-loading,
+.history-empty {
+  padding: 28px 0;
+  text-align: center;
+  color: #6b7280;
+}
+
+.history-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 100%;
+}
+
+.history-table th,
+.history-table td {
+  padding: 14px 12px;
+  text-align: left;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 14px;
+  color: #374151;
+}
+
+.history-table th {
+  background: #f9fafb;
+  font-weight: 600;
+  color: #111827;
+}
+
+.history-table tbody tr:hover {
+  background: #f8fafc;
+}
+
 .assignment-row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

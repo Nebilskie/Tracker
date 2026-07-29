@@ -104,7 +104,20 @@
                 </div>
               </ng-container>
               <ng-container *ngIf="column.key !== 'password'">
-                {{ user[column.key] ?? '' }}
+                <ng-container *ngIf="column.key === 'username'; else plainUserCell">
+                  <span
+                    class="name-link name-link--action"
+                    role="button"
+                    tabindex="0"
+                    (click)="openUserHistory(user)"
+                    (keyup.enter)="openUserHistory(user)"
+                  >
+                    {{ user[column.key] ?? '' }}
+                  </span>
+                </ng-container>
+                <ng-template #plainUserCell>
+                  {{ user[column.key] ?? '' }}
+                </ng-template>
               </ng-container>
             </td>
             <td>
@@ -146,6 +159,45 @@
         </button>
         <button class="page-btn" type="button" (click)="goToPage(currentPage + 1)" [disabled]="currentPage === totalPages">›</button>
         <button class="page-btn" type="button" (click)="goToPage(totalPages)" [disabled]="currentPage === totalPages">»</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="history-modal-overlay" *ngIf="showUserHistoryModal" (click)="closeUserHistory()">
+    <div class="history-modal" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h3>User Transfer History</h3>
+        <button class="close-btn" type="button" (click)="closeUserHistory()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="history-summary">
+          <div><strong>User:</strong> {{ historyUser?.['username'] ?? historyUser?.['id'] ?? 'Unknown' }}</div>
+          <div><strong>ID:</strong> {{ historyUser?.['id'] ?? 'N/A' }}</div>
+          <div><strong>Role:</strong> {{ historyUser?.['role'] ?? 'N/A' }}</div>
+        </div>
+
+        <div *ngIf="historyLoading" class="history-loading">Loading transfer history...</div>
+
+        <table *ngIf="!historyLoading && userHistory.length" class="history-table">
+          <thead>
+            <tr>
+              <th>Date / Time</th>
+              <th>From</th>
+              <th>To</th>
+              <th>By</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let entry of userHistory">
+              <td>{{ entry.transferred_at | date:'medium' }}</td>
+              <td>{{ formatLocation(entry.from_building_name, entry.from_room_name, entry.from_cubicle_label) }}</td>
+              <td>{{ formatLocation(entry.to_building_name, entry.to_room_name, entry.to_cubicle_label) }}</td>
+              <td>{{ entry.transferred_by_username || 'Unknown' }}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div *ngIf="!historyLoading && !userHistory.length" class="history-empty">No transfer history available.</div>
       </div>
     </div>
   </div>

@@ -549,6 +549,49 @@ async function initializeTables() {
       )
     `);
 
+    // Transfer history tracking for items
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS trk_item (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        item_id INT NOT NULL,
+        from_building_id INT,
+        from_room_id INT,
+        from_cubicle_id INT,
+        to_building_id INT NOT NULL,
+        to_room_id INT,
+        to_cubicle_id INT,
+        transferred_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        transferred_by_user_id INT,
+        KEY idx_item_id (item_id),
+        KEY idx_transferred_at (transferred_at),
+        CONSTRAINT fk_trk_item_item FOREIGN KEY (item_id) REFERENCES mst_item(id) ON DELETE CASCADE
+      )
+    `);
+    const [hasNotes] = await conn.query("SHOW COLUMNS FROM trk_item LIKE 'notes'");
+    if (hasNotes.length) {
+      await conn.query('ALTER TABLE trk_item DROP COLUMN notes');
+    }
+
+    // Transfer history tracking for users
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS trk_user (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        from_building_id INT,
+        from_room_id INT,
+        from_cubicle_id INT,
+        to_building_id INT NOT NULL,
+        to_room_id INT,
+        to_cubicle_id INT,
+        transferred_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        transferred_by_user_id INT,
+        notes LONGTEXT,
+        KEY idx_user_id (user_id),
+        KEY idx_transferred_at (transferred_at),
+        CONSTRAINT fk_trk_user_user FOREIGN KEY (user_id) REFERENCES mst_users(id) ON DELETE CASCADE
+      )
+    `);
+
     // Drop legacy per-item-type tables (we now use mst_item)
     try {
       await conn.query("DROP TABLE IF EXISTS monitors");
@@ -2531,9 +2574,10 @@ app.get('/api/rooms/:roomId/cubicles', async (req, res) => {
 
 // Transfer items between cubicles in the same room
 app.post('/api/transfer-items', async (req, res) => {
-  const { roomId: roomIdParam, fromLabel, toCubicleId, transferTargetBuildingId, itemTypes, itemCodes, transferAssignedUser, transferOnlyUser } = req.body || {};
-  console.log('/api/transfer-items payload:', { roomIdParam, fromLabel, toCubicleId, transferTargetBuildingId, itemTypes, itemCodes, transferAssignedUser });
+  const { roomId: roomIdParam, fromLabel, toCubicleId, transferTargetBuildingId, itemTypes, itemCodes, transferAssignedUser, transferOnlyUser, transferredByUserId } = req.body || {};
+  console.log('/api/transfer-items payload:', { roomIdParam, fromLabel, toCubicleId, transferTargetBuildingId, itemTypes, itemCodes, transferAssignedUser, transferredByUserId });
   const moveAssignedUser = Boolean(transferAssignedUser);
+  const transferByUserId = Number.isFinite(Number(transferredByUserId)) ? Number(transferredByUserId) : null;
   const selectedItemCodes = Array.isArray(itemCodes)
     ? itemCodes.map((c) => String(c || '').trim()).filter((c) => c !== '')
     : [];
@@ -2562,9 +2606,9 @@ app.post('/api/transfer-items', async (req, res) => {
 
     await conn.beginTransaction();
 
-    // resolve source cubicle id and assigned user
+    // resolve source cubicle id and assigned user from users table
     const [fromRows] = await conn.query(
-      'SELECT id, user_id FROM mst_cubicles WHERE room_id = ? AND LOWER(TRIM(label)) = LOWER(TRIM(?)) LIMIT 1',
+      'SELECT id FROM mst_cubicles WHERE room_id = ? AND LOWER(TRIM(label)) = LOWER(TRIM(?)) LIMIT 1',
       [roomId, String(fromLabel || '').trim()]
     );
     if (!fromRows.length) {
@@ -2572,7 +2616,13 @@ app.post('/api/transfer-items', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Source cubicle not found' });
     }
     const fromCubicleId = Number(fromRows[0].id);
-    const sourceAssignedUser = fromRows[0].user_id || null;
+
+    const [sourceUserRows] = await conn.query(
+      'SELECT id, building_id, room_id, cubicle_id FROM mst_users WHERE cubicle_id = ? LIMIT 1',
+      [fromCubicleId]
+    );
+    const sourceAssignedUser = sourceUserRows.length ? sourceUserRows[0].id : null;
+    const sourceAssignedUserLocation = sourceUserRows.length ? sourceUserRows[0] : null;
 
     // validate target cubicle exists and resolve its room/building when provided
     let targetRoomId = null;
@@ -2618,7 +2668,7 @@ app.post('/api/transfer-items', async (req, res) => {
     // find item codes that will be moved (unless this is a user-only transfer)
     let toMoveRows = [];
     if (!transferOnlyUser) {
-      let selectSql = 'SELECT code FROM mst_item WHERE room_id = ? AND cubicle_id = ?';
+      let selectSql = 'SELECT id, code, building_id, room_id, cubicle_id FROM mst_item WHERE room_id = ? AND cubicle_id = ?';
       const params = [roomId, fromCubicleId];
       if (selectedItemCodes.length) {
         const placeholders = selectedItemCodes.map(() => '?').join(',');
@@ -2631,6 +2681,54 @@ app.post('/api/transfer-items', async (req, res) => {
       }
       const [rows] = await conn.query(selectSql, params);
       toMoveRows = rows;
+    }
+
+    // Log item transfers to history before updating
+    for (const item of toMoveRows) {
+      try {
+        await conn.query(
+          `INSERT INTO trk_item 
+           (item_id, from_building_id, from_room_id, from_cubicle_id, 
+            to_building_id, to_room_id, to_cubicle_id, transferred_by_user_id) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            item.id,
+            item.building_id || null,
+            item.room_id || null,
+            item.cubicle_id || null,
+            targetBuildingId,
+            targetRoomId || null,
+            targetCubicleId || null,
+            transferByUserId
+          ]
+        );
+      } catch (e) {
+        console.warn('Failed to log item transfer for item', item.id, e?.message || e);
+      }
+    }
+
+    // Log user transfer to history if moving assigned user
+    if (moveAssignedUser && sourceAssignedUserLocation) {
+      try {
+        await conn.query(
+          `INSERT INTO trk_user 
+           (user_id, from_building_id, from_room_id, from_cubicle_id, 
+            to_building_id, to_room_id, to_cubicle_id, transferred_by_user_id) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            sourceAssignedUserLocation.id,
+            sourceAssignedUserLocation.building_id || null,
+            sourceAssignedUserLocation.room_id || null,
+            sourceAssignedUserLocation.cubicle_id || null,
+            targetBuildingId,
+            targetRoomId || null,
+            targetCubicleId || null,
+            transferByUserId
+          ]
+        );
+      } catch (e) {
+        console.warn('Failed to log user transfer for user', sourceAssignedUserLocation.id, e?.message || e);
+      }
     }
 
     // perform update to reassign items
@@ -2895,6 +2993,52 @@ async function ensureStorageBuildingId(q) {
   return rows?.[0]?.id || null;
 }
 
+app.get('/api/items/:id/history', async (req, res) => {
+  const itemId = Number(req.params.id);
+  if (!Number.isFinite(itemId) || itemId <= 0) {
+    return res.status(400).json({ success: false, error: 'Invalid item id' });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    const [rows] = await conn.query(
+      `SELECT t.id,
+              t.from_building_id,
+              t.from_room_id,
+              t.from_cubicle_id,
+              t.to_building_id,
+              t.to_room_id,
+              t.to_cubicle_id,
+              t.transferred_at,
+              t.transferred_by_user_id,
+              u.username AS transferred_by_username,
+              bfrom.building_name AS from_building_name,
+              rfrom.room_name AS from_room_name,
+              cfrom.label AS from_cubicle_label,
+              bto.building_name AS to_building_name,
+              rto.room_name AS to_room_name,
+              cto.label AS to_cubicle_label
+       FROM trk_item t
+       LEFT JOIN mst_users u ON u.id = t.transferred_by_user_id
+       LEFT JOIN mst_building bfrom ON bfrom.id = t.from_building_id
+       LEFT JOIN mst_room rfrom ON rfrom.id = t.from_room_id
+       LEFT JOIN mst_cubicles cfrom ON cfrom.id = t.from_cubicle_id
+       LEFT JOIN mst_building bto ON bto.id = t.to_building_id
+       LEFT JOIN mst_room rto ON rto.id = t.to_room_id
+       LEFT JOIN mst_cubicles cto ON cto.id = t.to_cubicle_id
+       WHERE t.item_id = ?
+       ORDER BY t.transferred_at DESC`,
+      [itemId]
+    );
+    res.json({ success: true, history: rows });
+  } catch (e) {
+    console.error('❌ /api/items/:id/history error', e);
+    res.status(500).json({ success: false, error: 'Server error' });
+  } finally {
+    conn.release();
+  }
+});
+
 app.get('/api/items', async (_req, res) => {
   const conn = await pool.getConnection();
   try {
@@ -3118,6 +3262,52 @@ app.get('/api/users', async (_req, res) => {
     res.json({ success: true, users: rows });
   } catch (e) {
     console.error('❌ /api/users error', e);
+    res.status(500).json({ success: false, error: 'Server error' });
+  } finally {
+    conn.release();
+  }
+});
+
+app.get('/api/users/:id/history', async (req, res) => {
+  const userId = Number(req.params.id);
+  if (!Number.isFinite(userId) || userId <= 0) {
+    return res.status(400).json({ success: false, error: 'Invalid user id' });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    const [rows] = await conn.query(
+      `SELECT t.id,
+              t.from_building_id,
+              t.from_room_id,
+              t.from_cubicle_id,
+              t.to_building_id,
+              t.to_room_id,
+              t.to_cubicle_id,
+              t.transferred_at,
+              t.transferred_by_user_id,
+              u.username AS transferred_by_username,
+              bfrom.building_name AS from_building_name,
+              rfrom.room_name AS from_room_name,
+              cfrom.label AS from_cubicle_label,
+              bto.building_name AS to_building_name,
+              rto.room_name AS to_room_name,
+              cto.label AS to_cubicle_label
+       FROM trk_user t
+       LEFT JOIN mst_users u ON u.id = t.transferred_by_user_id
+       LEFT JOIN mst_building bfrom ON bfrom.id = t.from_building_id
+       LEFT JOIN mst_room rfrom ON rfrom.id = t.from_room_id
+       LEFT JOIN mst_cubicles cfrom ON cfrom.id = t.from_cubicle_id
+       LEFT JOIN mst_building bto ON bto.id = t.to_building_id
+       LEFT JOIN mst_room rto ON rto.id = t.to_room_id
+       LEFT JOIN mst_cubicles cto ON cto.id = t.to_cubicle_id
+       WHERE t.user_id = ?
+       ORDER BY t.transferred_at DESC`,
+      [userId]
+    );
+    res.json({ success: true, history: rows });
+  } catch (e) {
+    console.error('❌ /api/users/:id/history error', e);
     res.status(500).json({ success: false, error: 'Server error' });
   } finally {
     conn.release();

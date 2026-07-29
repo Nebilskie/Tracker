@@ -90,6 +90,12 @@ export class ItInventoryPage implements OnInit, OnDestroy {
     { value: '2', label: 'Used' }
   ];
 
+  // History modal
+  showHistoryModal = false;
+  historyItem: Record<string, any> | null = null;
+  itemHistory: Record<string, any>[] = [];
+  historyLoading = false;
+
   @ViewChild('itemTypeInput') itemTypeInput?: ElementRef;
   private refreshSubscription: Subscription | null = null;
 
@@ -193,6 +199,52 @@ export class ItInventoryPage implements OnInit, OnDestroy {
     this.assetType = match;
     this.searchTerm = '';
     this.loadAssetData();
+  }
+
+  openItemHistory(row: Record<string, any>) {
+    if (!row?.['id']) {
+      return;
+    }
+
+    this.historyItem = row;
+    this.showHistoryModal = true;
+    this.historyLoading = true;
+    this.itemHistory = [];
+
+    this.inventoryService.getItemHistory(Number(row['id'])).subscribe(
+      (res) => {
+        this.historyLoading = false;
+        this.itemHistory = Array.isArray(res?.history) ? res.history : [];
+      },
+      (err) => {
+        console.error('Failed to load item history', err);
+        this.historyLoading = false;
+        this.itemHistory = [];
+      }
+    );
+  }
+
+  closeHistoryModal() {
+    this.showHistoryModal = false;
+    this.historyItem = null;
+    this.itemHistory = [];
+    this.historyLoading = false;
+  }
+
+  private formatLocation(building?: string, room?: string, cubicle?: string) {
+    const pieces: string[] = [];
+    if (cubicle) pieces.push(cubicle);
+    if (room) pieces.push(room);
+    if (building) pieces.push(building);
+    return pieces.length ? pieces.join(' • ') : 'N/A';
+  }
+
+  getHistoryFromLocation(entry: Record<string, any>) {
+    return this.formatLocation(entry['from_building_name'], entry['from_room_name'], entry['from_cubicle_label']);
+  }
+
+  getHistoryToLocation(entry: Record<string, any>) {
+    return this.formatLocation(entry['to_building_name'], entry['to_room_name'], entry['to_cubicle_label']);
   }
 
   loadAssetDataManual() {
