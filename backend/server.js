@@ -26,7 +26,7 @@ app.use(express.text({ type: ['text/csv', 'text/plain'] }));
 app.use((req, res, next) => {
   const deviceId = req.headers["x-device-id"];
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
-  if (deviceId) console.log(`📱 Device: ${deviceId}`);
+  if (deviceId) console.log(`Device: ${deviceId}`);
   next();
 });
 
@@ -203,7 +203,7 @@ async function initializeTables() {
         // ignore if the server does not support check constraints or it already exists
       }
     } catch (e) {
-      console.warn("⚠️ requests status migration skipped:", e?.message || e);
+      console.warn("requests status migration skipped:", e?.message || e);
     }
 
     const [columnsInventoryTable] = await conn.query(
@@ -268,7 +268,7 @@ async function initializeTables() {
          await conn.query("RENAME TABLE floorplan_rooms TO mst_room");
        }
      } catch (e) {
-       console.warn("⚠️ mst_room table rename skipped:", e?.message || e);
+       console.warn("mst_room table rename skipped:", e?.message || e);
      }
 
      await conn.query(`
@@ -306,7 +306,7 @@ async function initializeTables() {
         await conn.query("ALTER TABLE mst_room ADD COLUMN building_id INT NULL AFTER user_id");
       }
     } catch (e) {
-      console.warn("⚠️ mst_room building_id migration skipped:", e?.message || e);
+      console.warn("mst_room building_id migration skipped:", e?.message || e);
     }
 
     // Prefer uniqueness scoped to building + user (allow same room name in different buildings)
@@ -321,7 +321,7 @@ async function initializeTables() {
         await conn.query("ALTER TABLE mst_room ADD UNIQUE KEY uniq_user_building_room_name (user_id, building_id, room_name)");
       }
     } catch (e) {
-      console.warn("⚠️ mst_room unique index migration skipped:", e?.message || e);
+      console.warn("mst_room unique index migration skipped:", e?.message || e);
     }
 
     // Best-effort foreign key (may fail if existing data is inconsistent)
@@ -335,7 +335,7 @@ async function initializeTables() {
         );
       }
     } catch (e) {
-      console.warn("⚠️ mst_room building FK migration skipped:", e?.message || e);
+      console.warn("mst_room building FK migration skipped:", e?.message || e);
     }
 
     // ---- migrate legacy table name floorplans/cubicles -> mst_cubicles ----
@@ -352,7 +352,7 @@ async function initializeTables() {
         }
       }
     } catch (e) {
-      console.warn("⚠️ cubicles table rename skipped:", e?.message || e);
+      console.warn("cubicles table rename skipped:", e?.message || e);
     }
 
     await conn.query(`
@@ -477,17 +477,23 @@ async function initializeTables() {
       await conn.query(
         "ALTER TABLE mst_item ADD CONSTRAINT fk_mst_item_building FOREIGN KEY (building_id) REFERENCES mst_building(id) ON DELETE RESTRICT"
       );
-    } catch (_e) {}
+    } catch (_e) {
+      // ignore if foreign key cannot be added or already exists
+    }
     try {
       await conn.query(
         "ALTER TABLE mst_item ADD CONSTRAINT fk_mst_item_room FOREIGN KEY (room_id) REFERENCES mst_room(id) ON DELETE SET NULL"
       );
-    } catch (_e) {}
+    } catch (_e) {
+      // ignore if foreign key cannot be added or already exists
+    }
     try {
       await conn.query(
         "ALTER TABLE mst_item ADD CONSTRAINT fk_mst_item_cubicle FOREIGN KEY (cubicle_id) REFERENCES mst_cubicles(id) ON DELETE SET NULL"
       );
-    } catch (_e) {}
+    } catch (_e) {
+      // ignore if foreign key cannot be added or already exists
+    }
 
     // Ensure users can be assigned to buildings, rooms, and cubicles.
     try {
@@ -514,7 +520,7 @@ async function initializeTables() {
         }
       }
     } catch (e) {
-      console.warn("⚠️ mst_users location assignment migration skipped:", e?.message || e);
+      console.warn("mst_users location assignment migration skipped:", e?.message || e);
     }
 
     // Ensure mst_users.id is auto-incrementing (fix for older schemas)
@@ -525,14 +531,14 @@ async function initializeTables() {
         if (!/auto_increment/i.test(extra)) {
           try {
             await conn.query("ALTER TABLE mst_users MODIFY id INT NOT NULL AUTO_INCREMENT");
-            console.log('🔧 Enabled AUTO_INCREMENT on mst_users.id');
-          } catch (_e) {
-            console.warn('⚠️ Could not enable AUTO_INCREMENT on mst_users.id:', _e?.message || _e);
+            console.log('Enabled AUTO_INCREMENT on mst_users.id');
+          } catch (e) {
+          console.error('/api/it-requests POST error', e);
           }
         }
       }
     } catch (e) {
-      console.warn('⚠️ mst_users id auto-increment migration skipped:', e?.message || e);
+      console.warn('mst_users id auto-increment migration skipped:', e?.message || e);
     }
 
     // Clean up legacy room placeholder entries in the mst_cubicles table.
@@ -620,11 +626,11 @@ async function initializeTables() {
       await conn.query("DROP TABLE IF EXISTS mouse");
       await conn.query("DROP TABLE IF EXISTS keyboards");
       await conn.query("DROP TABLE IF EXISTS computers");
-    } catch (_e) {
-      // ignore drop errors
+    } catch (e) {
+      console.error('Update status error:', e);
     }
 
-    console.log("✅ Tables ready");
+    console.log("Tables ready");
   } finally {
     conn.release();
   }
@@ -969,7 +975,7 @@ app.post('/api/admin/fix-item-building-ids', async (req, res) => {
     }
     res.json({ success: true, updated });
   } catch (e) {
-    console.error('❌ /api/admin/fix-item-building-ids error', e);
+    console.error('/api/admin/fix-item-building-ids error', e);
     res.status(500).json({ success: false, error: 'Server error' });
   } finally {
     conn.release();
@@ -1286,7 +1292,7 @@ async function reserveRequestedItem(conn, requestId, requestText) {
       }
     }
   } catch (err) {
-    console.error(`❌ Error reserving inventory for request ${requestId}:`, err);
+    console.error(`Error reserving inventory for request ${requestId}:`, err);
   }
 }
 
@@ -1322,7 +1328,7 @@ async function releaseReservedItem(conn, requestId, requestText) {
       }
     }
   } catch (err) {
-    console.error(`❌ Error releasing reserved item for request ${requestId}:`, err);
+    console.error(`Error releasing reserved item for request ${requestId}:`, err);
   }
 }
 
@@ -1446,7 +1452,7 @@ async function markRequestedItemUsed(conn, requestId, requestText, targetStatus 
       }
     }
   } catch (err) {
-    console.error(`❌ Error marking item used for request ${requestId}:`, err);
+    console.error(`Error marking item used for request ${requestId}:`, err);
   }
 }
 
@@ -1886,7 +1892,7 @@ app.get('/api/inventory/:type', async (req, res) => {
 
     res.json({ success: true, items: rows });
   } catch (e) {
-    console.error('❌ /api/inventory/:type error', e);
+    console.error('/api/inventory/:type error', e);
     res.status(500).json({ success: false, error: 'Server error' });
   } finally {
     conn.release();
@@ -1927,8 +1933,8 @@ app.post("/rooms", async (req, res) => {
 
     res.json({ success:true, roomId:roomRecordId });
 
-  } catch(e) {
-    console.error(e);
+    } catch (e) {
+      console.error('Update request item error:', e);
     res.status(500).json({ success:false, error:"Server error creating room" });
   } finally {
     conn.release();
@@ -2143,7 +2149,7 @@ async function handleSaveCubicles(req, res) {
 
   } catch (e) {
     await conn.rollback();
-    console.error("❌ Save floorplan error:", e);
+    console.error("Save floorplan error:", e);
     res.status(500).json({ success: false, error: "Server error saving floorplan" });
   } finally {
     conn.release();
@@ -2200,7 +2206,7 @@ async function handleListCubicles(_req, res) {
 
     return res.json({ success: true, cubicles: mappedRows });
   } catch (e) {
-    console.error("❌ List floorplans error:", e);
+    console.error("List floorplans error:", e);
     return res.status(500).json({ success: false, error: "Server error listing floorplans" });
   }
 }
@@ -2439,7 +2445,7 @@ app.get("/api/buildings", async (req, res) => {
     const [rows] = await pool.query(q);
     res.json({ success: true, buildings: rows });
   } catch (e) {
-    console.error("❌ /api/buildings GET error:", e);
+    console.error("/api/buildings GET error:", e);
     res.status(500).json({ success: false, error: "Server error listing buildings" });
   }
 });
@@ -2484,7 +2490,7 @@ app.post("/api/buildings", async (req, res) => {
       },
     });
   } catch (e) {
-    console.error("❌ /api/buildings POST error:", e);
+    console.error("/api/buildings POST error:", e);
     res.status(500).json({ success: false, error: "Server error creating building" });
   } finally {
     conn.release();
@@ -2534,7 +2540,7 @@ app.delete("/api/buildings/:buildingId", async (req, res) => {
     res.json({ success: true, deleted: result.affectedRows });
   } catch (e) {
     await conn.rollback();
-    console.error("❌ /api/buildings DELETE error:", e);
+    console.error("/api/buildings DELETE error:", e);
     res.status(500).json({ success: false, error: "Server error deleting building" });
   } finally {
     conn.release();
@@ -2568,7 +2574,7 @@ app.delete("/api/buildings/:buildingId/rooms/:roomId", async (req, res) => {
 
     return res.json({ success: true, deleted: result.affectedRows });
   } catch (e) {
-    console.error("❌ /api/buildings/:buildingId/rooms/:roomId DELETE error:", e);
+    console.error("/api/buildings/:buildingId/rooms/:roomId DELETE error:", e);
     res.status(500).json({ success: false, error: "Server error deleting room" });
   } finally {
     conn.release();
@@ -2608,7 +2614,7 @@ app.get("/api/buildings/:buildingId/rooms", async (req, res) => {
     );
     return res.json({ success: true, rooms: rows });
   } catch (e) {
-    console.error("❌ /api/buildings/:buildingId/rooms GET error:", e);
+    console.error("/api/buildings/:buildingId/rooms GET error:", e);
     return res.status(500).json({ success: false, error: "Server error listing rooms" });
   }
 });
@@ -2676,7 +2682,7 @@ app.get('/api/rooms/:roomId/cubicles', async (req, res) => {
 
     res.json({ success: true, cubicles });
   } catch (e) {
-    console.error('❌ /api/rooms/:roomId/cubicles GET error:', e);
+    console.error('/api/rooms/:roomId/cubicles GET error:', e);
     res.status(500).json({ success: false, error: 'Server error listing cubicles' });
   }
 });
@@ -2935,7 +2941,7 @@ app.post('/api/transfer-items', async (req, res) => {
     return res.json({ success: true, moved: Array.isArray(toMoveRows) ? toMoveRows.length : 0 });
   } catch (e) {
     await conn.rollback();
-    console.error('❌ /api/transfer-items error', e);
+    console.error('/api/transfer-items error', e);
     // Return error message for debugging (can be removed later)
     const msg = e && e.message ? String(e.message) : 'Server error transferring items';
     return res.status(500).json({ success: false, error: msg });
@@ -2978,7 +2984,7 @@ app.post("/api/buildings/:buildingId/rooms", async (req, res) => {
       room: { id: result.insertId, user_id: uid, building_id: buildingId, room_name: name },
     });
   } catch (e) {
-    console.error("❌ /api/buildings/:buildingId/rooms POST error:", e);
+    console.error("/api/buildings/:buildingId/rooms POST error:", e);
     return res.status(500).json({ success: false, error: "Server error creating room" });
   } finally {
     conn.release();
@@ -2995,7 +3001,7 @@ app.get("/api/brands", async (_req, res) => {
     );
     res.json({ success: true, brands: rows });
   } catch (e) {
-    console.error("❌ Brands fetch error:", e);
+    console.error("Brands fetch error:", e);
     res.status(500).json({ success: false });
   }
 });
@@ -3021,7 +3027,7 @@ app.post("/api/brands", async (req, res) => {
       return res.json({ success: true, brand: rows[0] });
     }
 
-    console.error("❌ Brand create error:", e);
+    console.error("Brand create error:", e);
     return res.status(500).json({ success: false });
   }
 });
@@ -3066,7 +3072,7 @@ app.put("/api/brands/:id", async (req, res) => {
     if (e?.code === "ER_DUP_ENTRY") {
       return res.status(409).json({ success: false, error: "Brand name already exists" });
     }
-    console.error("❌ Brand update error:", e);
+    console.error("Brand update error:", e);
     return res.status(500).json({ success: false });
   }
 });
@@ -3081,8 +3087,8 @@ app.delete("/api/brands/:id", async (req, res) => {
     const [result] = await pool.query("DELETE FROM mst_brand WHERE id = ?", [id]);
     if (result.affectedRows === 0) return res.status(404).json({ success: false });
     return res.json({ success: true });
-  } catch (e) {
-    console.error("❌ Brand delete error:", e);
+    } catch (e) {
+    console.error("Brand delete error:", e);
     return res.status(500).json({ success: false });
   }
 });
@@ -3141,7 +3147,7 @@ app.get('/api/items/:id/history', async (req, res) => {
     );
     res.json({ success: true, history: rows });
   } catch (e) {
-    console.error('❌ /api/items/:id/history error', e);
+    console.error('/api/items/:id/history error', e);
     res.status(500).json({ success: false, error: 'Server error' });
   } finally {
     conn.release();
@@ -3174,7 +3180,7 @@ app.get('/api/items', async (_req, res) => {
     );
     res.json({ success: true, items: rows });
   } catch (e) {
-    console.error('❌ /api/items error', e);
+    console.error('/api/items error', e);
     res.status(500).json({ success: false, error: 'Server error' });
   } finally {
     conn.release();
@@ -3274,7 +3280,7 @@ app.put('/api/items/:id/status', async (req, res) => {
     }
     return res.json({ success: true, status: statusValue });
   } catch (e) {
-    console.error('❌ /api/items/:id/status error', e);
+    console.error('/api/items/:id/status error', e);
     return res.status(500).json({ success: false, error: 'Server error' });
   } finally {
     conn.release();
@@ -3291,7 +3297,7 @@ app.get('/api/items/types', async (_req, res) => {
     const types = rows.map(r => r.item_type).filter(Boolean);
     res.json({ success: true, types });
   } catch (e) {
-    console.error('❌ /api/items/types error', e);
+    console.error('/api/items/types error', e);
     res.status(500).json({ success: false, error: 'Server error' });
   } finally {
     conn.release();
@@ -3335,7 +3341,7 @@ app.post('/api/items', async (req, res) => {
 
     res.json({ success: true, id: result.insertId });
   } catch (err) {
-    console.error('❌ POST /api/items error:', err);
+    console.error('POST /api/items error:', err);
     if (err.code === 'ER_DUP_ENTRY') {
       return res.status(400).json({ success: false, error: 'Item with this type and code already exists' });
     }
@@ -3370,7 +3376,7 @@ app.get('/api/users', async (_req, res) => {
     );
     res.json({ success: true, users: rows });
   } catch (e) {
-    console.error('❌ /api/users error', e);
+    console.error('/api/users error', e);
     res.status(500).json({ success: false, error: 'Server error' });
   } finally {
     conn.release();
@@ -3416,7 +3422,7 @@ app.get('/api/users/:id/history', async (req, res) => {
     );
     res.json({ success: true, history: rows });
   } catch (e) {
-    console.error('❌ /api/users/:id/history error', e);
+    console.error('/api/users/:id/history error', e);
     res.status(500).json({ success: false, error: 'Server error' });
   } finally {
     conn.release();
@@ -3447,7 +3453,7 @@ app.post('/api/users', async (req, res) => {
       );
 
       if (!insertResult || insertResult.affectedRows === 0) {
-        console.debug('❗ /api/users insertResult debug', { insertResult });
+      console.debug('/api/users insertResult debug', { insertResult });
         // In case IGNORE skipped (duplicate), try to find existing id by username.
         const [idRows] = await conn.query('SELECT id FROM mst_users WHERE username = ? LIMIT 1', [trimmedUsername]);
         newUserId = idRows?.[0]?.id;
@@ -3460,7 +3466,7 @@ app.post('/api/users', async (req, res) => {
         newUserId = idRows?.[0]?.id;
       }
     } catch (e) {
-      console.error('❌ /api/users insert error', e?.message || e);
+      console.error('/api/users insert error', e?.message || e);
       return res.status(500).json({ success: false, error: 'Server error' });
     }
 
@@ -3471,7 +3477,7 @@ app.post('/api/users', async (req, res) => {
     const [rows] = await conn.query('SELECT * FROM mst_users WHERE id = ? LIMIT 1', [newUserId]);
     res.json({ success: true, user: rows?.[0] || null });
   } catch (e) {
-    console.error('❌ /api/users error', e?.message || e, { body: req.body });
+    console.error('/api/users error', e?.message || e, { body: req.body });
     res.status(500).json({ success: false, error: 'Server error' });
   } finally {
     conn.release();
@@ -3535,7 +3541,7 @@ app.post('/api/users/import', async (req, res) => {
 
     res.json({ success: true, imported: normalizedRows.length, skipped: 0 });
   } catch (e) {
-    console.error('❌ /api/users/import error', e);
+    console.error('/api/users/import error', e);
     res.status(500).json({ success: false, error: 'Server error' });
   } finally {
     conn.release();
@@ -3632,13 +3638,13 @@ app.post('/api/users/:id/assign-location', async (req, res) => {
     const [updatedRows] = await conn.query('SELECT * FROM mst_users WHERE id = ? LIMIT 1', [userId]);
     await conn.commit();
     res.json({ success: true, user: updatedRows[0] || null });
-  } catch (e) {
-    try {
-      await conn.rollback();
-    } catch {}
-    console.error('❌ /api/users/:id/assign-location error', e);
-    res.status(500).json({ success: false, error: 'Server error' });
-  } finally {
+    } catch (e) {
+      try {
+        await conn.rollback();
+      } catch {}
+      console.error('/api/users/:id/assign-location error', e);
+      res.status(500).json({ success: false, error: 'Server error' });
+    } finally {
     conn.release();
   }
 });
@@ -3667,7 +3673,7 @@ app.post('/api/inventory/:type/import', async (req, res) => {
     const importedResult = await normalizeAndInsertInventoryRows(conn, rows, typeParam);
     res.json(importedResult);
   } catch (e) {
-    console.error('❌ /api/inventory/:type/import error', e);
+    console.error('/api/inventory/:type/import error', e);
     res.status(500).json({ success: false, error: 'Server error' });
   } finally {
     conn.release();
@@ -3693,7 +3699,7 @@ app.post('/api/inventory/import', async (req, res) => {
     const importedResult = await normalizeAndInsertInventoryRows(conn, rows, null);
     res.json(importedResult);
   } catch (e) {
-    console.error('❌ /api/inventory/import error', e);
+    console.error('/api/inventory/import error', e);
     res.status(500).json({ success: false, error: 'Server error' });
   } finally {
     conn.release();
@@ -3773,7 +3779,7 @@ app.get('/api/inventory/summary', async (_req, res) => {
 
     res.json({ success: true, summary });
   } catch (e) {
-    console.error('❌ /api/inventory/summary error', e);
+    console.error('/api/inventory/summary error', e);
     res.status(500).json({ success: false, error: 'Server error' });
   } finally {
     conn.release();
@@ -3865,7 +3871,7 @@ app.get('/api/it-requests', async (_req, res) => {
 
     res.json({ success: true, requests });
   } catch (e) {
-    console.error('❌ /api/it-requests GET error', e);
+    console.error('/api/it-requests GET error', e);
     res.status(500).json({ success: false, error: e.message || 'Server error' });
   } finally {
     conn.release();
@@ -3899,7 +3905,7 @@ app.post('/api/it-requests', async (req, res) => {
 
     res.json({ success: true, id: result?.insertId });
   } catch (e) {
-    console.error('❌ /api/it-requests POST error', e);
+    console.error('/api/it-requests POST error', e);
     res.status(500).json({ success: false, error: e.message || 'Database error' });
   } finally {
     conn.release();
@@ -3999,7 +4005,7 @@ app.put('/api/it-requests/:id', async (req, res) => {
     res.json({ success: true });
   } catch (e) {
     try { await conn.rollback(); } catch (_) {}
-    console.error('❌ Update status error:', e);
+    console.error('Update status error:', e);
     res.status(500).json({ success: false, error: e.message || 'Database error' });
   } finally {
     conn.release();
@@ -4106,7 +4112,7 @@ app.put('/api/it-requests/:id/item-type', async (req, res) => {
     });
   } catch (e) {
     try { await conn.rollback(); } catch (_) {}
-    console.error('❌ Update request item error:', e);
+    console.error('Update request item error:', e);
     return res.status(500).json({ success: false, error: e.message || 'Database error' });
   } finally {
     conn.release();
@@ -4125,7 +4131,7 @@ app.put('/api/it-requests/:id/item-type', async (req, res) => {
     const advertisedHost = HOST === '0.0.0.0' ? '192.168.100.173' : HOST;
 
     app.listen(PORT, HOST, () => {
-      console.log(`🚀 Server running on http://${advertisedHost}:${PORT}`);
+      console.log(`Server running on http://${advertisedHost}:${PORT}`);
     });
   } catch (e) {
     const dbHost = process.env.DB_HOST || '192.168.88.87';
@@ -4133,7 +4139,7 @@ app.put('/api/it-requests/:id/item-type', async (req, res) => {
     const dbName = process.env.DB_NAME || 'tracker';
     const dbUser = process.env.DB_USER || 'ezware1';
 
-    console.error(`❌ Server startup failed. Database connection details:`);
+    console.error(`Server startup failed. Database connection details:`);
     console.error(`   DB_HOST=${dbHost}`);
     console.error(`   DB_PORT=${dbPort}`);
     console.error(`   DB_NAME=${dbName}`);

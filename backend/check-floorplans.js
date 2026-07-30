@@ -10,16 +10,16 @@ const db = mysql.createConnection({
 
 db.connect((err) => {
   if (err) {
-    console.error("❌ MySQL connection error:", err);
+    console.error("MySQL connection error:", err);
     process.exit(1);
   }
 
-  console.log("✅ Connected to MySQL\n");
+  console.log("Connected to MySQL\n");
 
   // Check mst_cubicles table (renamed from floorplans/cubicles)
   db.query("SELECT COUNT(*) as count FROM mst_cubicles", (err, result) => {
     if (err) {
-      console.error("❌ Error checking cubicles:", err);
+      console.error("Error checking cubicles:", err);
     } else {
       const count = result[0].count;
       console.log(`📊 mst_cubicles table: ${count} records`);
@@ -28,7 +28,7 @@ db.connect((err) => {
         // Show some sample data
         db.query("SELECT * FROM mst_cubicles LIMIT 5", (err, rows) => {
           if (err) {
-            console.error("❌ Error getting cubicle data:", err);
+            console.error("Error getting cubicle data:", err);
           } else {
             console.log("\n📋 Sample mst_cubicles data:");
             rows.forEach(row => {
