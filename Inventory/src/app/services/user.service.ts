@@ -5,6 +5,7 @@ import { environment } from '../../environments/environment';
 
 export interface UserRecord {
   [key: string]: any;
+  added?: string;
 }
 
 export interface UserHistoryEntry {

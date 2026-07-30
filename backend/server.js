@@ -395,6 +395,7 @@ async function initializeTables() {
         cubicle_id INT NULL,
         status TINYINT NOT NULL DEFAULT 1 COMMENT '0=Defect,1=Available,2=Used',
         location VARCHAR(255) DEFAULT NULL,
+        added DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         last_update DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY uniq_item_type_code (item_type, code),
         KEY idx_item_brand_id (brand_id),
@@ -418,6 +419,20 @@ async function initializeTables() {
     if (!itemStatusCol.length) {
       await conn.query(
         "ALTER TABLE mst_item ADD COLUMN status TINYINT NOT NULL DEFAULT 1 COMMENT '0=Defect,1=Available,2=Used' AFTER brand_id"
+      );
+    }
+
+    const [itemLocationCol] = await conn.query("SHOW COLUMNS FROM mst_item LIKE 'location'");
+    if (!itemLocationCol.length) {
+      await conn.query(
+        "ALTER TABLE mst_item ADD COLUMN location VARCHAR(255) DEFAULT NULL AFTER cubicle_id"
+      );
+    }
+
+    const [itemAddedCol] = await conn.query("SHOW COLUMNS FROM mst_item LIKE 'added'");
+    if (!itemAddedCol.length) {
+      await conn.query(
+        "ALTER TABLE mst_item ADD COLUMN added DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER location"
       );
     }
 
@@ -478,9 +493,14 @@ async function initializeTables() {
     try {
       const [userTableExists] = await conn.query("SHOW TABLES LIKE 'mst_users'");
       if (userTableExists.length) {
+        const [addedColUser] = await conn.query("SHOW COLUMNS FROM mst_users LIKE 'added'");
+        if (!addedColUser.length) {
+          await conn.query("ALTER TABLE mst_users ADD COLUMN added DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER role");
+        }
+
         const [buildingIdColUser] = await conn.query("SHOW COLUMNS FROM mst_users LIKE 'building_id'");
         if (!buildingIdColUser.length) {
-          await conn.query("ALTER TABLE mst_users ADD COLUMN building_id INT NULL AFTER role");
+          await conn.query("ALTER TABLE mst_users ADD COLUMN building_id INT NULL AFTER added");
         }
 
         const [roomIdColUser] = await conn.query("SHOW COLUMNS FROM mst_users LIKE 'room_id'");
@@ -1103,7 +1123,7 @@ function replaceRequestedItemTypeInText(requestText, itemType) {
 
 // not needed anymore: inventory columns removed; use mst_item for actual items
 
-async function setFloorplanInventoryValue(conn, roomId, label, itemType, itemCode) {
+async function setFloorplanInventoryValue(conn, roomId, label, itemType, itemCode, transferredByUserId = null) {
   if (!roomId || !label || !itemType) return;
 
   // Find cubicle id for the label inside the target room
@@ -1120,18 +1140,69 @@ async function setFloorplanInventoryValue(conn, roomId, label, itemType, itemCod
   }
 
   if (itemCode) {
-    // assign the item to the cubicle and keep its building_id in sync with the room
-    await conn.query(
-      `UPDATE mst_item SET room_id = ?, cubicle_id = ?, building_id = ?, last_update = CURRENT_TIMESTAMP WHERE item_type = ? AND code = ?`,
-      [roomId, cubicleId, resolvedBuildingId, itemType, itemCode]
+    const [currentRows] = await conn.query(
+      `SELECT id, building_id, room_id, cubicle_id FROM mst_item WHERE item_type = ? AND code = ? LIMIT 1`,
+      [itemType, itemCode]
     );
-  } else {
-    // clear assignment for any item of this type assigned to this cubicle
-    if (cubicleId) {
-      await conn.query(
-        `UPDATE mst_item SET cubicle_id = NULL, room_id = NULL, last_update = CURRENT_TIMESTAMP WHERE item_type = ? AND cubicle_id = ?`,
-        [itemType, cubicleId]
-      );
+    const currentItem = currentRows?.[0] || null;
+
+    const fromBuildingId = currentItem?.building_id || null;
+    const fromRoomId = currentItem?.room_id || null;
+    const fromCubicleId = currentItem?.cubicle_id || null;
+
+    if (currentItem && (fromBuildingId !== resolvedBuildingId || fromRoomId !== roomId || fromCubicleId !== cubicleId)) {
+      try {
+        await conn.query(
+          `INSERT INTO trk_item
+           (item_id, from_building_id, from_room_id, from_cubicle_id,
+            to_building_id, to_room_id, to_cubicle_id, transferred_by_user_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            currentItem.id,
+            fromBuildingId,
+            fromRoomId,
+            fromCubicleId,
+            resolvedBuildingId,
+            roomId,
+            cubicleId,
+            transferredByUserId
+          ]
+        );
+      } catch (e) {
+        console.warn('Failed to log item transfer during assignment for item', currentItem.id, e?.message || e);
+      }
+
+      // Assign the item to the target cubicle/room/building so location updates correctly
+      try {
+        const hasBuildingIdCol = await hasColumn(conn, 'mst_item', 'building_id');
+        const hasRoomIdCol = await hasColumn(conn, 'mst_item', 'room_id');
+        const hasCubicleIdCol = await hasColumn(conn, 'mst_item', 'cubicle_id');
+
+        const setParts = [];
+        const params = [];
+
+        if (hasCubicleIdCol) {
+          setParts.push('cubicle_id = ?');
+          params.push(cubicleId);
+        }
+        if (hasRoomIdCol) {
+          setParts.push('room_id = ?');
+          params.push(roomId);
+        }
+        if (hasBuildingIdCol) {
+          setParts.push('building_id = ?');
+          params.push(resolvedBuildingId);
+        }
+
+        if (setParts.length) {
+          setParts.push('last_update = CURRENT_TIMESTAMP');
+          const updateSql = `UPDATE mst_item SET ${setParts.join(', ')} WHERE LOWER(TRIM(code)) = LOWER(TRIM(?)) AND LOWER(TRIM(item_type)) = LOWER(TRIM(?))`;
+          params.push(itemCode, itemType);
+          await conn.query(updateSql, params);
+        }
+      } catch (e) {
+        console.warn('Failed to assign item location during assignment for item', currentItem.id, e?.message || e);
+      }
     }
   }
 
@@ -1211,7 +1282,7 @@ async function reserveRequestedItem(conn, requestId, requestText) {
           );
         }
 
-        await setFloorplanInventoryValue(conn, roomId, cubicleLabel, itemType, itemName);
+        await setFloorplanInventoryValue(conn, roomId, cubicleLabel, itemType, itemName, userId);
       }
     }
   } catch (err) {
@@ -1370,7 +1441,7 @@ async function markRequestedItemUsed(conn, requestId, requestText, targetStatus 
 
     if (cubicleLabel && itemType && roomId) {
       if (roomId) {
-        await setFloorplanInventoryValue(conn, roomId, cubicleLabel, itemType, itemName);
+        await setFloorplanInventoryValue(conn, roomId, cubicleLabel, itemType, itemName, userId);
         await updateItemLocation(conn, 'mst_item', itemName);
       }
     }
@@ -1442,7 +1513,7 @@ async function applyCompletionAction(conn, requestId, requestText, completionAct
   }
 
   const [reqRows] = await conn.query(
-    `SELECT inventory_item_name, previous_inventory_item_name
+    `SELECT user_id, inventory_item_name, previous_inventory_item_name
      FROM requests
      WHERE id = ?
      LIMIT 1`,
@@ -1511,9 +1582,46 @@ async function applyCompletionAction(conn, requestId, requestText, completionAct
     const previousStatus = action === 'defective' ? 0 : 1;
     await setItemStatusByCode(conn, previousUsedItemCode, previousStatus);
 
+    // capture current item location before moving
+    let prevItemRow = null;
+    try {
+      const [r] = await conn.query(
+        `SELECT id, building_id, room_id, cubicle_id FROM mst_item WHERE LOWER(TRIM(code)) = LOWER(TRIM(?)) LIMIT 1`,
+        [previousUsedItemCode]
+      );
+      prevItemRow = r?.[0] || null;
+    } catch (fetchErr) {
+      console.warn('[completionAction] Unable to fetch previous item location:', fetchErr?.message || fetchErr);
+    }
+
     if (action === 'defective' || action === 'change') {
       try {
         await moveItemToStorageByCode(conn, previousUsedItemCode);
+
+        // log transfer to trk_item so history shows storage move
+        try {
+          if (prevItemRow) {
+            const storageBuildingId = await ensureStorageBuildingId(conn);
+            await conn.query(
+              `INSERT INTO trk_item
+               (item_id, from_building_id, from_room_id, from_cubicle_id,
+                to_building_id, to_room_id, to_cubicle_id, transferred_by_user_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                prevItemRow.id,
+                prevItemRow.building_id || null,
+                prevItemRow.room_id || null,
+                prevItemRow.cubicle_id || null,
+                storageBuildingId || null,
+                null,
+                null,
+                reqRows?.[0]?.user_id || null
+              ]
+            );
+          }
+        } catch (logErr) {
+          console.warn('[completionAction] Failed to log trk_item for moved previous item', previousUsedItemCode, logErr?.message || logErr);
+        }
       } catch (storageErr) {
         console.warn('[completionAction] Unable to move item to storage:', storageErr?.message || storageErr);
       }
@@ -1702,6 +1810,7 @@ app.get('/api/inventory/:type', async (req, res) => {
                 WHEN COALESCE(bld_cub.building_name, bld_item.building_name) IS NOT NULL THEN COALESCE(bld_cub.building_name, bld_item.building_name)
                 ELSE ''
               END AS location,
+              i.added,
               i.last_update,
               b.brand_name AS manufacturer
        FROM mst_item i
@@ -3219,8 +3328,8 @@ app.post('/api/items', async (req, res) => {
 
     // Insert into mst_item
     const [result] = await conn.query(
-      `INSERT INTO mst_item (item_type, code, item_details, brand_id, building_id, room_id, cubicle_id, status, last_update)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      `INSERT INTO mst_item (item_type, code, item_details, brand_id, building_id, room_id, cubicle_id, status, added, last_update)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
       [trimmedItemType, trimmedCode, trimmedDetails, finalBrandId, finalBuildingId, finalRoomId, finalCubicleId, statusNum]
     );
 

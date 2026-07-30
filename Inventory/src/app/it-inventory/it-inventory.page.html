@@ -273,6 +273,7 @@
           <div><strong>Item:</strong> {{ historyItem?.['name'] ?? 'Unknown' }}</div>
           <div><strong>ID:</strong> {{ historyItem?.['id'] ?? 'N/A' }}</div>
           <div><strong>Status:</strong> {{ historyItem?.['status'] ?? 'N/A' }}</div>
+          <div><strong>Added:</strong> {{ historyItem?.['added'] ? (historyItem?.['added'] | date:'medium') : 'N/A' }}</div>
         </div>
 
         <div *ngIf="historyLoading" class="history-loading">Loading history...</div>

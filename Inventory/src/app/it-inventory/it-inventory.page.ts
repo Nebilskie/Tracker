@@ -326,6 +326,7 @@ export class ItInventoryPage implements OnInit, OnDestroy {
               id: it.id,
               name: displayName,
               status: this.mapItemStatus(it.status),
+              added: it.added || it.last_update,
               details,
               brand,
               building: it.building_name || '',

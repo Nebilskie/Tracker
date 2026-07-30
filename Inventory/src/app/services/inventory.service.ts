@@ -9,6 +9,7 @@ export interface InventoryItem {
   item_type?: string;
   item_details?: string;
   name?: string;
+  type?: string;
   status?: string | number;
   manufacturer?: string;
   location?: string;
@@ -17,10 +18,7 @@ export interface InventoryItem {
   building_name?: string;
   model?: string;
   last_update?: string;
-  serial_number?: string;
-  type?: string;
-  os?: string;
-  processor?: string;
+  added?: string;
 }
 
 export interface InventoryItemHistoryEntry {
